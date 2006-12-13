@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE project [<!ENTITY buildfile SYSTEM "file:./build-user.xml">]>
+
+<project name="KETL BizGres" default="package" basedir=".">
+    &buildfile;
+
+    <path id="project.classpath">
+        <pathelement location="build"/>
+        <pathelement location="lib/KETL.jar"/>
+        <pathelement location="lib/log4j-1.2.9.jar"/>
+        <pathelement location="lib/commons-logging*.jar"/>
+    </path>
+
+    <target name="init">
+        <mkdir dir="build"/>
+    </target>
+    <target name="clean">
+        <delete dir="build"/>
+    </target>
+    <target name="build" depends="init">
+        <echo message="${ant.project.name}: ${ant.file}"/>
+        <javac destdir="build" encoding="cp1252" >
+            <!--<compilerarg value="-Xlint" />-->
+            <src path="src"/>
+            <classpath refid="project.classpath"/>
+        </javac>
+    </target>
+</project>
+
