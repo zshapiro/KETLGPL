@@ -65,7 +65,7 @@ public class MetadataScheduler extends Metadata {
 
             // clear job_log of all finished loads and move them to job_log_hist
             getfinishedLoads = this.metadataConnection.prepareStatement("SELECT LOAD_ID FROM  " + tablePrefix
-                    + "LOAD WHERE (START_JOB_ID,LOAD_ID) IN (SELECT JOB_ID,LOAD_ID FROM  " + tablePrefix
+                    + loadTableName()+" WHERE (START_JOB_ID,LOAD_ID) IN (SELECT JOB_ID,LOAD_ID FROM  " + tablePrefix
                     + "JOB_LOG WHERE STATUS_ID IN (?,?,?))");
 
             getfinishedLoads.setInt(1, ETLJobStatus.FAILED);
@@ -79,7 +79,7 @@ public class MetadataScheduler extends Metadata {
                 // update end_date of load
                 if (setLoadEndDate == null) {
                     setLoadEndDate = this.metadataConnection.prepareStatement(" UPDATE  " + tablePrefix
-                            + "LOAD SET END_DATE = " + currentTimeStampSyntax + " WHERE LOAD_ID = ?");
+                            + loadTableName()+" SET END_DATE = " + currentTimeStampSyntax + " WHERE LOAD_ID = ?");
                 }
 
                 ResourcePool.releaseLoadLookups(m_rs.getInt(1));
