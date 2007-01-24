@@ -31,13 +31,13 @@ public class BytePerstIndexedMapTest extends IndexedMapTest {
         // TODO Auto-generated constructor stub
     }
 
-    @Override
-    protected void setUp() throws Exception {
-        super.setUp();
 
-        map = new CachedIndexedMap(new ByteBasedPerstIndexedMap("test", 50000, 0, System.getProperty("user.dir")
+
+	@Override
+	PersistentMap getMap() {
+		return new CachedIndexedMap(new ByteBasedPerstIndexedMap("test", 50000, 0, System.getProperty("user.dir")
                 + File.separator + "log", new Class[] { Long.class, Float.class }, new Class[] { Long.class,
-                Float.class }, new String[] { "a", "b" }, false));
-    }
+            Float.class }, new String[] { "a", "b" }, false));
+	}
 
 }
