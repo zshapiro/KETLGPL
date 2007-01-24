@@ -79,8 +79,8 @@ final public class RawPerstIndexedMap implements PersistentMap {
                     + NumberFormatter.format(mSize));
             storage = StorageFactory.getInstance().createStorage();
             storage.setProperty("perst.background.gc", false);
-            storage.setProperty("perst.extension.quantum", 48 * 1024);
-            storage.setProperty("perst.file.noflush", true);
+            // storage.setProperty("perst.extension.quantum", 48 * 1024);
+            storage.setProperty("perst.file.noflush", false);
 
             try {
                 storage.open(this.getCacheFileName(), mSize);
@@ -351,8 +351,13 @@ final public class RawPerstIndexedMap implements PersistentMap {
         Key key = wrapKey(packArray((Object[]) pkey, this.mKeyTypes, this.mKeyIsPacked));
 
         synchronized (wait) {
-            if (mMap.put(key, datum))
-                count++;
+            try {
+                if (mMap.put(key, datum))
+                    count++;
+            } catch (Throwable e) {
+                throw new KETLError("Key->" + key + "(" + java.util.Arrays.toString((Object[]) pkey) + "), Value->"
+                        + datum + "(" + java.util.Arrays.toString((Object[]) value) + ")", e);
+            }
         }
         return null;
     }
@@ -454,28 +459,19 @@ final public class RawPerstIndexedMap implements PersistentMap {
             storage.commit();
             root.store();
             storage.close();
-            
 
             storage = null;
-            /*File fl = new File(this.getCacheFileName());
-            if (fl.exists())
-                if (fl.delete()) {
-                    ResourcePool.LogMessage(Thread.currentThread(), ResourcePool.INFO_MESSAGE, "Deleting cache file");
-                }
-             */                
+            /*
+             * File fl = new File(this.getCacheFileName()); if (fl.exists()) if (fl.delete()) {
+             * ResourcePool.LogMessage(Thread.currentThread(), ResourcePool.INFO_MESSAGE, "Deleting cache file"); }
+             */
         }
     }
 
     private String getCacheFileName() {
-    	String sub;
-		if (Thread.currentThread().getName().contains("ETLDaemon"))
-			sub = "ETLDaemon";
-		else if (Thread.currentThread().getName().contains("Console"))
-			sub = "Console";
-		else
-			sub = "Default";
-
-		return mCacheDir + File.separator + "KETL." + sub + ".cache";
+        String sub = ResourcePool.getCacheIndexPrefix();
+        
+        return mCacheDir + File.separator + "KETL." + sub + ".cache";
     }
 
     public Object get(Object key) {
@@ -508,7 +504,7 @@ final public class RawPerstIndexedMap implements PersistentMap {
                 exampleValue = (tmp instanceof Object[]) ? java.util.Arrays.toString((Object[]) tmp) : res.toString();
             }
         }
-        
+
         return "\n\tInternal Name: " + this.mName + "\n\tKey Type(s):" + java.util.Arrays.toString(this.mKeyTypes)
                 + "\n\tKey Field(s):" + java.util.Arrays.toString(this.mValueFields) + "\n\tResult Type(s):"
                 + java.util.Arrays.toString(this.mValueTypes) + "\n\tExample: Key->" + exampleKey + " Value->"
@@ -610,6 +606,11 @@ final public class RawPerstIndexedMap implements PersistentMap {
             storage.close();
             storage = null;
         }
+    }
+
+    public void closeCacheEnvironment() {
+        // TODO Auto-generated method stub
+        
     }
 
 }
