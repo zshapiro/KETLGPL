@@ -26,6 +26,9 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.TimeZone;
 
 import com.kni.etl.ETLJob;
 import com.kni.etl.ETLJobStatus;
@@ -65,12 +68,13 @@ public class MetadataScheduler extends Metadata {
 
             // clear job_log of all finished loads and move them to job_log_hist
             getfinishedLoads = this.metadataConnection.prepareStatement("SELECT LOAD_ID FROM  " + tablePrefix
-                    + loadTableName()+" WHERE (START_JOB_ID,LOAD_ID) IN (SELECT JOB_ID,LOAD_ID FROM  " + tablePrefix
-                    + "JOB_LOG WHERE STATUS_ID IN (?,?,?))");
+                    + loadTableName() + " WHERE (START_JOB_ID,LOAD_ID) IN (SELECT JOB_ID,LOAD_ID FROM  " + tablePrefix
+                    + "JOB_LOG WHERE STATUS_ID IN (?,?,?,?))");
 
             getfinishedLoads.setInt(1, ETLJobStatus.FAILED);
             getfinishedLoads.setInt(2, ETLJobStatus.CANCELLED);
             getfinishedLoads.setInt(3, ETLJobStatus.SUCCESSFUL);
+            getfinishedLoads.setInt(4, ETLJobStatus.SKIPPED);
 
             m_rs = getfinishedLoads.executeQuery();
 
@@ -79,7 +83,7 @@ public class MetadataScheduler extends Metadata {
                 // update end_date of load
                 if (setLoadEndDate == null) {
                     setLoadEndDate = this.metadataConnection.prepareStatement(" UPDATE  " + tablePrefix
-                            + loadTableName()+" SET END_DATE = " + currentTimeStampSyntax + " WHERE LOAD_ID = ?");
+                            + loadTableName() + " SET END_DATE = " + currentTimeStampSyntax + " WHERE LOAD_ID = ?");
                 }
 
                 ResourcePool.releaseLoadLookups(m_rs.getInt(1));
@@ -110,13 +114,25 @@ public class MetadataScheduler extends Metadata {
                 clearJobErrorStmt.setInt(1, m_rs.getInt(1));
                 clearJobErrorStmt.executeUpdate();
 
+                // test if this column exist
+                String JOB_LOG_LAST_UPDATE_COL = "";
+                if (columnExists("JOB_LOG", "LAST_UPDATE_DATE"))
+                    JOB_LOG_LAST_UPDATE_COL = ", LAST_UPDATE_DATE";
+                String JOB_LOG_HIST_LAST_UPDATE_COL = "";
+                if (columnExists("JOB_LOG_HIST", "LAST_UPDATE_DATE"))
+                    JOB_LOG_HIST_LAST_UPDATE_COL = ", LAST_UPDATE_DATE";
+
                 // copy job_log details to job_log_hist
                 if (insJobLogHistStmt == null) {
                     insJobLogHistStmt = this.metadataConnection
                             .prepareStatement("insert into  "
                                     + tablePrefix
-                                    + "job_log_hist(job_id,load_id,start_date,status_id,end_date,message,dm_load_id,retry_attempts,execution_date,server_id)  select job_id,load_id,start_date,status_id,end_date,message,dm_load_id,retry_attempts,execution_date,server_id from  "
-                                    + tablePrefix + "job_log where load_id = ?");
+                                    + "job_log_hist(job_id,load_id,start_date,status_id,end_date,message,dm_load_id,retry_attempts,execution_date,server_id"
+                                    + JOB_LOG_LAST_UPDATE_COL
+                                    + ") "
+                                    + "select job_id,load_id,start_date,status_id,end_date,message,dm_load_id,retry_attempts,execution_date,server_id"
+                                    + JOB_LOG_HIST_LAST_UPDATE_COL + " from  " + tablePrefix
+                                    + "job_log where load_id = ?");
                 }
 
                 insJobLogHistStmt.setInt(1, m_rs.getInt(1));
@@ -330,34 +346,75 @@ public class MetadataScheduler extends Metadata {
             // for execution
             // *************** Need to improve this as the associated update is
             // slow ********/
-            PreparedStatement selFinishedJobs = this.metadataConnection
-                    .prepareStatement(" SELECT STATUS_ID, DM_LOAD_ID, LOAD_ID FROM  " + tablePrefix
-                            + "JOB_LOG WHERE STATUS_ID IN (?,?) FOR UPDATE");
-            selFinishedJobs.setInt(1, ETLJobStatus.PENDING_CLOSURE_SUCCESSFUL);
-            selFinishedJobs.setInt(2, ETLJobStatus.PENDING_CLOSURE_FAILED);
-            m_rs = selFinishedJobs.executeQuery();
+            Calendar cal = Calendar.getInstance(TimeZone.getDefault());
+            long ms = 0;
+            Date tStop = null;
+            Date tStart = cal.getTime();
 
             // mark jobs that have finished with appropiate status
-            PreparedStatement updJobs = this.metadataConnection
-                    .prepareStatement("UPDATE  "
-                            + tablePrefix
-                            + "job_log SET status_id = ?,MESSAGE = ? WHERE (load_id,job_id) IN "
-                            + " (SELECT   load_id,parent_job_id FROM  "
-                            + tablePrefix
-                            + "job_log a,  "
-                            + tablePrefix
-                            + "job_dependencie b "
-                            + " WHERE a.job_id = b.job_id GROUP BY load_id,parent_job_id "
-                            + " HAVING MAX (CASE WHEN continue_if_failed = 'Y' THEN (CASE status_id WHEN ? THEN 0 WHEN ? THEN 0 ELSE 1 END) ELSE (CASE status_id WHEN ? THEN  0 ELSE 1 END) END) = 0) AND STATUS_ID = ?");
-            updJobs.setInt(1, ETLJobStatus.READY_TO_RUN);
-            updJobs.setString(2, etlJobStatus.getStatusMessageForCode(ETLJobStatus.READY_TO_RUN));
-            updJobs.setInt(3, (ETLJobStatus.PENDING_CLOSURE_SUCCESSFUL));
-            updJobs.setInt(4, (ETLJobStatus.PENDING_CLOSURE_FAILED));
-            updJobs.setInt(5, (ETLJobStatus.PENDING_CLOSURE_SUCCESSFUL));
-            updJobs.setInt(6, ETLJobStatus.WAITING_FOR_CHILDREN);
-            updJobs.executeUpdate();
+            // -- actually, this block is only getting the next jobs ready to run (process WAITING statuses)
+            // 20061010 daonguyen - incorporate new statuses
+            // NOTE: PENDING_CLOSURE_CANCELLED stops the workflow so no update here
+            PreparedStatement mReadyList = this.metadataConnection
+                    .prepareStatement("SELECT load_id, job_id, status_id FROM " + tablePrefix
+                            + "job_log WHERE STATUS_ID in (?, ?, ?) AND (load_id,job_id) IN "
+                            + " (SELECT   load_id,parent_job_id FROM  " + tablePrefix + "job_log a,  " + tablePrefix
+                            + "job_dependencie b " + " WHERE a.job_id = b.job_id GROUP BY load_id,parent_job_id "
+                            + " HAVING MAX (CASE WHEN continue_if_failed = 'Y' "
+                            + "   THEN (CASE status_id WHEN ? THEN 0 WHEN ? THEN 0 WHEN ? THEN 0 ELSE 1 END) "
+                            + "   ELSE (CASE status_id WHEN ? THEN  0 WHEN ? THEN 0 ELSE 1 END)"
+                            + " END) = 0) FOR UPDATE");
+            mReadyList.setInt(1, ETLJobStatus.WAITING_FOR_CHILDREN);
+            mReadyList.setInt(2, ETLJobStatus.WAITING_TO_SKIP);
+            mReadyList.setInt(3, ETLJobStatus.WAITING_TO_PAUSE);
+            mReadyList.setInt(4, (ETLJobStatus.PENDING_CLOSURE_SUCCESSFUL));
+            mReadyList.setInt(5, (ETLJobStatus.PENDING_CLOSURE_FAILED));
+            mReadyList.setInt(6, (ETLJobStatus.PENDING_CLOSURE_SKIP));
+            mReadyList.setInt(7, (ETLJobStatus.PENDING_CLOSURE_SUCCESSFUL));
+            mReadyList.setInt(8, (ETLJobStatus.PENDING_CLOSURE_SKIP));
+
+            ResultSet rsReadyJobs = mReadyList.executeQuery();
+
+            PreparedStatement updJobs = this.metadataConnection.prepareStatement(" UPDATE  " + tablePrefix
+                    + "job_log SET status_id = ?, message = ? where job_id = ? and load_id = ?");
+
+            while (rsReadyJobs.next()) {
+                int wait_status = rsReadyJobs.getInt("status_id");
+                switch (wait_status) {
+                case ETLJobStatus.WAITING_FOR_CHILDREN:
+                    updJobs.setInt(1, ETLJobStatus.READY_TO_RUN);
+                    updJobs.setString(2, etlJobStatus.getStatusMessageForCode(ETLJobStatus.READY_TO_RUN));
+                    break;
+                case ETLJobStatus.WAITING_TO_SKIP:
+                    updJobs.setInt(1, ETLJobStatus.PENDING_CLOSURE_SKIP);
+                    updJobs.setString(2, etlJobStatus.getStatusMessageForCode(ETLJobStatus.PENDING_CLOSURE_SKIP));
+                    break;
+                case ETLJobStatus.WAITING_TO_PAUSE:
+                    updJobs.setInt(1, ETLJobStatus.PAUSED);
+                    updJobs.setString(2, etlJobStatus.getStatusMessageForCode(ETLJobStatus.PAUSED));
+                    break;
+                }
+                updJobs.setString(3, rsReadyJobs.getString("job_id"));
+                updJobs.setInt(4, rsReadyJobs.getInt("load_id"));
+                updJobs.addBatch();
+            }
+            updJobs.executeBatch();
+
+            tStop = cal.getTime();
+            ms = tStop.getTime() - tStart.getTime();
+            // System.out.println("-----");
+            // System.out.println("WAITING: batch updated " + rsReadyJobs.getRow() + " rows in " + ms + "
+            // milliseconds.");
+
+            if (mReadyList != null)
+                mReadyList.close();
+            if (rsReadyJobs != null)
+                rsReadyJobs.close();
+            if (updJobs != null)
+                updJobs.close();
 
             // mark jobs set for retry to be retried if time has passed
+            tStart = cal.getTime();
             PreparedStatement mRetryList = this.metadataConnection
                     .prepareStatement("select a.job_id, "
                             + " case when (coalesce(a.retry_attempts,0)) < b.retry_attempts then ?  else  ?  end as status_id, "
@@ -390,6 +447,11 @@ public class MetadataScheduler extends Metadata {
 
             updRetryJobs.executeBatch();
 
+            tStop = cal.getTime();
+            ms = tStop.getTime() - tStart.getTime();
+            // System.out.println("Retry: batch updated " + m_rsJobsToRetry.getRow() + " rows in " + ms + "
+            // milliseconds.");
+
             if (mRetryList != null) {
                 mRetryList.close();
             }
@@ -399,49 +461,114 @@ public class MetadataScheduler extends Metadata {
                 m_rsJobsToRetry.close();
             }
 
+            // find jobs that have finished (process PENDING_CLOSURE statuses)
+            // 20061010 daonguyen - update code for PENDING_CLOSURE_SKIP and PENDING_CLOSURE_CANCELLED
+            tStart = cal.getTime();
+            PreparedStatement selFinishedJobs = this.metadataConnection
+                    .prepareStatement(" SELECT STATUS_ID, DM_LOAD_ID, LOAD_ID, JOB_ID FROM  " + tablePrefix
+                            + "JOB_LOG WHERE STATUS_ID IN (?,?,?, ?) FOR UPDATE");
+            selFinishedJobs.setInt(1, ETLJobStatus.PENDING_CLOSURE_SUCCESSFUL);
+            selFinishedJobs.setInt(2, ETLJobStatus.PENDING_CLOSURE_FAILED);
+            selFinishedJobs.setInt(3, ETLJobStatus.PENDING_CLOSURE_SKIP);
+            selFinishedJobs.setInt(4, ETLJobStatus.PENDING_CLOSURE_CANCELLED);
+            m_rs = selFinishedJobs.executeQuery();
+
             PreparedStatement pStmt = null;
+            PreparedStatement pCancelStmt = null;
 
             while (m_rs.next()) {
+                int statusID = m_rs.getInt(1);
                 int dmLoadID = m_rs.getInt(2);
                 int LoadID = m_rs.getInt(3);
+                String cJobID = m_rs.getString(4);
 
-                if (pStmt == null) {
-                    pStmt = metadataConnection
-                            .prepareStatement("UPDATE  "
-                                    + tablePrefix
-                                    + "JOB_LOG "
-                                    + " SET STATUS_ID = (CASE STATUS_ID WHEN ? THEN ? WHEN ? THEN ? END), "
-                                    + "     MESSAGE = (CASE STATUS_ID WHEN ? THEN ? WHEN ? THEN ? END) "
-                                    + " WHERE DM_LOAD_ID = ? AND NOT EXISTS (SELECT 1 FROM  "
-                                    + tablePrefix
-                                    + "JOB_LOG B,  "
-                                    + tablePrefix
-                                    + "JOB_DEPENDENCIE C  "
-                                    + " WHERE B.JOB_ID = C.PARENT_JOB_ID AND B.LOAD_ID = ? AND JOB_LOG.JOB_ID = C.JOB_ID AND B.STATUS_ID =  ?)");
+                switch (statusID) {
+                // -- now update finished jobs
+                // -- only if all parent jobs have been processed (are not in WAITING state)
+                case ETLJobStatus.PENDING_CLOSURE_SUCCESSFUL:
+                case ETLJobStatus.PENDING_CLOSURE_FAILED:
+                case ETLJobStatus.PENDING_CLOSURE_SKIP:
+                    if (pStmt == null) {
+                        pStmt = metadataConnection
+                                .prepareStatement("UPDATE  "
+                                        + tablePrefix
+                                        + "JOB_LOG "
+                                        + " SET STATUS_ID = (CASE STATUS_ID WHEN ? THEN ? WHEN ? THEN ? WHEN ? THEN ? END), "
+                                        + "     MESSAGE = (CASE STATUS_ID WHEN ? THEN ? WHEN ? THEN ? WHEN ? THEN ? END) "
+                                        + " WHERE DM_LOAD_ID = ? AND NOT EXISTS (SELECT 1 FROM  "
+                                        + tablePrefix
+                                        + "JOB_LOG B,  "
+                                        + tablePrefix
+                                        + "JOB_DEPENDENCIE C  "
+                                        + " WHERE B.JOB_ID = C.PARENT_JOB_ID AND B.LOAD_ID = ? AND JOB_LOG.JOB_ID = C.JOB_ID AND B.STATUS_ID in (?, ?, ?))");
+                    }
+                    pStmt.setInt(1, (ETLJobStatus.PENDING_CLOSURE_FAILED));
+                    pStmt.setInt(2, (ETLJobStatus.FAILED));
+                    pStmt.setInt(3, (ETLJobStatus.PENDING_CLOSURE_SUCCESSFUL));
+                    pStmt.setInt(4, (ETLJobStatus.SUCCESSFUL));
+                    pStmt.setInt(5, (ETLJobStatus.PENDING_CLOSURE_SKIP));
+                    pStmt.setInt(6, (ETLJobStatus.SKIPPED));
+                    pStmt.setInt(7, (ETLJobStatus.PENDING_CLOSURE_FAILED));
+                    pStmt.setString(8, etlJobStatus.getStatusMessageForCode(ETLJobStatus.FAILED));
+                    pStmt.setInt(9, (ETLJobStatus.PENDING_CLOSURE_SUCCESSFUL));
+                    pStmt.setString(10, etlJobStatus.getStatusMessageForCode(ETLJobStatus.SUCCESSFUL));
+                    pStmt.setInt(11, (ETLJobStatus.PENDING_CLOSURE_SKIP));
+                    pStmt.setString(12, etlJobStatus.getStatusMessageForCode(ETLJobStatus.SKIPPED));
+                    pStmt.setInt(13, dmLoadID);
+                    pStmt.setInt(14, LoadID);
+                    pStmt.setInt(15, ETLJobStatus.WAITING_FOR_CHILDREN);
+                    pStmt.setInt(16, ETLJobStatus.WAITING_TO_SKIP);
+                    pStmt.setInt(17, ETLJobStatus.WAITING_TO_PAUSE);
+                    pStmt.addBatch();
+                    break;
+
+                // -- now update cancelled jobs
+                // -- for non-root jobs, ignore depends_on & waits_on
+                // -- for root jobs, test that all children have completed/not started (nothing is running)
+                case ETLJobStatus.PENDING_CLOSURE_CANCELLED:
+                    if (pCancelStmt == null) {
+                        pCancelStmt = metadataConnection.prepareStatement("UPDATE  " + tablePrefix
+                                + "JOB_LOG SET STATUS_ID = ?, MESSAGE = ? "
+                                + " WHERE DM_LOAD_ID = ? AND (EXISTS (SELECT 1 FROM " + tablePrefix
+                                + "LOAD WHERE LOAD_ID = ? AND START_JOB_ID <> ?) " + " OR NOT EXISTS (SELECT 1 FROM  "
+                                + tablePrefix + "LOAD B, " + tablePrefix + "JOB_LOG C "
+                                + " WHERE B.LOAD_ID = ? AND B.START_JOB_ID = ? "
+                                + " AND B.START_JOB_ID <> C.JOB_ID AND C.STATUS_ID in (?,?,?,?) ))");
+                    }
+                    pCancelStmt.setInt(1, (ETLJobStatus.CANCELLED));
+                    pCancelStmt.setString(2, etlJobStatus.getStatusMessageForCode(ETLJobStatus.CANCELLED));
+                    pCancelStmt.setInt(3, dmLoadID);
+                    pCancelStmt.setInt(4, LoadID);
+                    pCancelStmt.setString(5, cJobID);
+                    pCancelStmt.setInt(6, LoadID);
+                    pCancelStmt.setString(7, cJobID);
+                    pCancelStmt.setInt(8, (ETLJobStatus.EXECUTING));
+                    pCancelStmt.setInt(9, (ETLJobStatus.READY_TO_RUN));
+                    pCancelStmt.setInt(10, (ETLJobStatus.ATTEMPT_PAUSE));
+                    pCancelStmt.setInt(11, (ETLJobStatus.ATTEMPT_CANCEL));
+                    // -- TODO: separate the pause execution and pause load statuses?
+                    // we need to make sure a job in execution paused is stopped first/cleanly before cancelling the
+                    // load
+                    // pStmt.setInt(9, (ETLJobStatus.PAUSED)); //currently, this is a load pause
+                    pCancelStmt.addBatch();
+                    break;
                 }
 
-                pStmt.setInt(1, (ETLJobStatus.PENDING_CLOSURE_FAILED));
-                pStmt.setInt(2, (ETLJobStatus.FAILED));
-                pStmt.setInt(3, (ETLJobStatus.PENDING_CLOSURE_SUCCESSFUL));
-                pStmt.setInt(4, (ETLJobStatus.SUCCESSFUL));
-                pStmt.setInt(5, (ETLJobStatus.PENDING_CLOSURE_FAILED));
-                pStmt.setString(6, etlJobStatus.getStatusMessageForCode(ETLJobStatus.FAILED));
-                pStmt.setInt(7, (ETLJobStatus.PENDING_CLOSURE_SUCCESSFUL));
-                pStmt.setString(8, etlJobStatus.getStatusMessageForCode(ETLJobStatus.SUCCESSFUL));
-
-                pStmt.setInt(9, dmLoadID);
-                pStmt.setInt(10, LoadID);
-                pStmt.setInt(11, ETLJobStatus.WAITING_FOR_CHILDREN);
-
-                // stmt = metadataConnection.prepareStatement(sql);
-                pStmt.addBatch();
             }
 
             if (pStmt != null) {
                 pStmt.executeBatch();
                 pStmt.close();
+
+                tStop = cal.getTime();
+                ms = tStop.getTime() - tStart.getTime();
+                // System.out.println("PENDING: batch updated " + m_rs.getRow() + " rows in " + ms + " milliseconds.");
             }
 
+            if (pCancelStmt != null) {
+                pCancelStmt.executeBatch();
+                pCancelStmt.close();
+            }
             // Close open resources
             if (m_rs != null) {
                 m_rs.close();
@@ -449,6 +576,7 @@ public class MetadataScheduler extends Metadata {
 
             metadataConnection.commit();
 
+            // -- now process jobs that are ready_to_run --
             boolean ReturnNextJob = true;
             ETLJob job = null;
 
@@ -484,7 +612,7 @@ public class MetadataScheduler extends Metadata {
 
                 PreparedStatement updJobLog = null;
 
-                // Get jobs if any
+                // Get jobs if any -- actually, this is only updating the status for and returning 1 job
                 while (m_rs.next() && (job == null)) {
                     if (jobToHandle == null) {
                         jobToHandle = m_rs.getString(1);
