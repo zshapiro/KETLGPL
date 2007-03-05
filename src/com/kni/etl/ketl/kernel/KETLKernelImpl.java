@@ -20,7 +20,7 @@
  *  San Francisco CA 94105
  *  http://www.kineticnetworks.com
  */
- 
+
 package com.kni.etl.ketl.kernel;
 
 import java.net.InetAddress;
@@ -374,6 +374,32 @@ public class KETLKernelImpl implements KETLKernel {
                             ((ETLJob) submittedJobsToCheck[pos]).getStatus().messageChanged = false;
 
                             md.setJobStatus((ETLJob) submittedJobsToCheck[pos]);
+                        }
+                        else {
+                            // test for Pause or Cancel Execution requests
+                            ETLJob xJob = (ETLJob) submittedJobsToCheck[pos];
+                            int oldStatus = xJob.getStatus().getStatusCode();
+                            md.getJobStatus(xJob);
+                            int xStatus = xJob.getStatus().getStatusCode();
+                            if (xStatus == ETLJobStatus.ATTEMPT_CANCEL) {
+                                for (int i = 0; i < jobManagers.length; i++) {
+                                    boolean success = ((ETLJobManager) jobManagers[i][0]).cancelJob(xJob);
+                                    if (success) {
+                                        xJob.getStatus().setStatusCode(ETLJobStatus.PENDING_CLOSURE_CANCELLED);
+                                        md.setJobStatus(xJob);
+                                        submittedJobs.remove(xJob);
+                                        xJob.cleanup();
+                                        break;
+                                    }
+                                }
+                            }
+                            /*
+                             * DO NOT give this option until we can actually pause a job; also need to add
+                             * PAUSED_EXECUTION status if (xJob.getStatus().getStatusCode() ==
+                             * ETLJobStatus.ATTEMPT_PAUSE) { for (int i = 0; i < jobManagers.length; i++) { boolean
+                             * success = ((ETLJobManager) jobManagers[i][0]).pauseJob(xJob); if (success) {
+                             * xJob.getStatus().setStatusCode(ETLJobStatus.PAUSED_EXECUTION); break; } } }
+                             */
                         }
 
                         break;
