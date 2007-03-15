@@ -316,7 +316,10 @@ public class KETLKernelImpl implements KETLKernel {
             try {
                 ETLJob job = null;
 
-                Object[] submittedJobsToCheck = submittedJobs.toArray();
+                
+                ETLJob[] submittedJobsToCheck = new ETLJob[submittedJobs.size()];
+                submittedJobs.toArray(submittedJobsToCheck);
+                
 
                 for (int pos = 0; pos < submittedJobsToCheck.length; pos++) {
                     switch (((ETLJob) submittedJobsToCheck[pos]).getStatus().getStatusCode()) {
@@ -339,6 +342,8 @@ public class KETLKernelImpl implements KETLKernel {
 
                         break;
 
+                    case ETLJobStatus.PENDING_CLOSURE_CANCELLED:
+                    case ETLJobStatus.PENDING_CLOSURE_SKIP:
                     case ETLJobStatus.PENDING_CLOSURE_SUCCESSFUL:
                         ((ETLJob) submittedJobsToCheck[pos]).writeLog();
 
@@ -368,39 +373,27 @@ public class KETLKernelImpl implements KETLKernel {
                         break;
 
                     case ETLJobStatus.EXECUTING:
+                        // get the job status from the metadata, not the executors its says executing
+                        int xStatus = md.getJobStatusByExecutionId(( submittedJobsToCheck[pos]).getJobExecutionID());
+                        if(xStatus == ETLJobStatus.ATTEMPT_CANCEL){
+                            (submittedJobsToCheck[pos]).getStatus().setStatusCode(ETLJobStatus.ATTEMPT_CANCEL);
+                            if((submittedJobsToCheck[pos]).isCancelled()==false)
+                                (submittedJobsToCheck[pos]).cancelJob();
+                            submittedJobsToCheck[pos].getStatus().messageChanged = true;
+                        }
+                        
+                        // now fall through to the attempt to cancel
+                        // DO NOT ADD 'BREAK'!!!!!
+                    case ETLJobStatus.ATTEMPT_CANCEL:
 
+                    
                         // if message changed refresh status
-                        if (((ETLJob) submittedJobsToCheck[pos]).getStatus().messageChanged) {
-                            ((ETLJob) submittedJobsToCheck[pos]).getStatus().messageChanged = false;
+                        if ((submittedJobsToCheck[pos]).getStatus().messageChanged) {
+                            ( submittedJobsToCheck[pos]).getStatus().messageChanged = false;
 
-                            md.setJobStatus((ETLJob) submittedJobsToCheck[pos]);
+                            md.setJobStatus( submittedJobsToCheck[pos]);
                         }
-                        else {
-                            // test for Pause or Cancel Execution requests
-                            ETLJob xJob = (ETLJob) submittedJobsToCheck[pos];
-                            int oldStatus = xJob.getStatus().getStatusCode();
-                            md.getJobStatus(xJob);
-                            int xStatus = xJob.getStatus().getStatusCode();
-                            if (xStatus == ETLJobStatus.ATTEMPT_CANCEL) {
-                                for (int i = 0; i < jobManagers.length; i++) {
-                                    boolean success = ((ETLJobManager) jobManagers[i][0]).cancelJob(xJob);
-                                    if (success) {
-                                        xJob.getStatus().setStatusCode(ETLJobStatus.PENDING_CLOSURE_CANCELLED);
-                                        md.setJobStatus(xJob);
-                                        submittedJobs.remove(xJob);
-                                        xJob.cleanup();
-                                        break;
-                                    }
-                                }
-                            }
-                            /*
-                             * DO NOT give this option until we can actually pause a job; also need to add
-                             * PAUSED_EXECUTION status if (xJob.getStatus().getStatusCode() ==
-                             * ETLJobStatus.ATTEMPT_PAUSE) { for (int i = 0; i < jobManagers.length; i++) { boolean
-                             * success = ((ETLJobManager) jobManagers[i][0]).pauseJob(xJob); if (success) {
-                             * xJob.getStatus().setStatusCode(ETLJobStatus.PAUSED_EXECUTION); break; } } }
-                             */
-                        }
+                             
 
                         break;
 
