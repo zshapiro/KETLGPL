@@ -311,15 +311,15 @@ public class KETLKernelImpl implements KETLKernel {
 
         boolean completeShutdown = false;
 
+        long mdCheckStatusTimer = System.currentTimeMillis();
+
         while (completeShutdown == false) {
             // listCurrentThreads();
             try {
                 ETLJob job = null;
 
-                
                 ETLJob[] submittedJobsToCheck = new ETLJob[submittedJobs.size()];
                 submittedJobs.toArray(submittedJobsToCheck);
-                
 
                 for (int pos = 0; pos < submittedJobsToCheck.length; pos++) {
                     switch (((ETLJob) submittedJobsToCheck[pos]).getStatus().getStatusCode()) {
@@ -374,26 +374,29 @@ public class KETLKernelImpl implements KETLKernel {
 
                     case ETLJobStatus.EXECUTING:
                         // get the job status from the metadata, not the executors its says executing
-                        int xStatus = md.getJobStatusByExecutionId(( submittedJobsToCheck[pos]).getJobExecutionID());
-                        if(xStatus == ETLJobStatus.ATTEMPT_CANCEL){
-                            (submittedJobsToCheck[pos]).getStatus().setStatusCode(ETLJobStatus.ATTEMPT_CANCEL);
-                            if((submittedJobsToCheck[pos]).isCancelled()==false)
-                                (submittedJobsToCheck[pos]).cancelJob();
-                            submittedJobsToCheck[pos].getStatus().messageChanged = true;
+                        // if current time is 1 second greater than last check then check metadata
+                        // this prevents metadata from being thrashed
+                        long currentTime = System.currentTimeMillis();
+                        if (currentTime > (mdCheckStatusTimer + 1000)) {
+                            mdCheckStatusTimer = currentTime;
+                            int xStatus = md.getJobStatusByExecutionId((submittedJobsToCheck[pos]).getJobExecutionID());
+                            if (xStatus == ETLJobStatus.ATTEMPT_CANCEL) {
+                                (submittedJobsToCheck[pos]).getStatus().setStatusCode(ETLJobStatus.ATTEMPT_CANCEL);
+                                if ((submittedJobsToCheck[pos]).isCancelled() == false)
+                                    (submittedJobsToCheck[pos]).cancelJob();
+                                submittedJobsToCheck[pos].getStatus().messageChanged = true;
+                            }
                         }
-                        
                         // now fall through to the attempt to cancel
                         // DO NOT ADD 'BREAK'!!!!!
                     case ETLJobStatus.ATTEMPT_CANCEL:
 
-                    
                         // if message changed refresh status
                         if ((submittedJobsToCheck[pos]).getStatus().messageChanged) {
-                            ( submittedJobsToCheck[pos]).getStatus().messageChanged = false;
+                            (submittedJobsToCheck[pos]).getStatus().messageChanged = false;
 
-                            md.setJobStatus( submittedJobsToCheck[pos]);
+                            md.setJobStatus(submittedJobsToCheck[pos]);
                         }
-                             
 
                         break;
 
@@ -402,7 +405,8 @@ public class KETLKernelImpl implements KETLKernel {
 
                     default:
                         ResourcePool.LogMessage(Thread.currentThread().getName(), ResourcePool.ERROR_MESSAGE,
-                                "Job in unmanaged status please contact support:"
+                                "Job in unmanaged status please contact support: Status ID = "
+                                        + submittedJobsToCheck[pos].getStatus().getStatusCode() + ", Message = "
                                         + ((ETLJob) submittedJobsToCheck[pos]).getStatus().getStatusMessage());
 
                         break;
