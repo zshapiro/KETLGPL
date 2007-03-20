@@ -150,6 +150,10 @@ public class GeoIPTransformation extends ETLTransformation {
 
                 String required = null;
                 switch (this.mField) {
+                case CITY_DMA_ID:
+                case CITY_AREA_ID:
+                    required = "INTEGER";
+                    break;
                 case CITY_LATITUDE_ID:
                 case CITY_LONGITUDE_ID:
                     required = "FLOAT";
@@ -180,6 +184,8 @@ public class GeoIPTransformation extends ETLTransformation {
     private static final int CITY_ID = 1;
     private static final int CITY_LATITUDE_ID = 5;
     private static final int CITY_LONGITUDE_ID = 6;
+    private static final int CITY_AREA_ID = 7;
+    private static final int CITY_DMA_ID = 8;
 
     private static final int CITY_POSTALCODE_ID = 4;
 
@@ -192,7 +198,7 @@ public class GeoIPTransformation extends ETLTransformation {
     private static final int COUNTRYNAME_ID = 1;
     private static final String FIELD_ATTRIB = "FIELD";
     private static final String[] FIELDS = { "COUNTRYCODE", "COUNTRYNAME", "REGION", "CITY", "POSTALCODE", "LATITUDE",
-            "LONGITUDE" };
+            "LONGITUDE" ,"AREACODE","DMA"};
     public static String FORMAT_STRING = "FORMATSTRING";
     private static final String ISP = "ISP";
     private static final String ISP_DB_PATH = "ISPDBPATH";
@@ -332,6 +338,12 @@ public class GeoIPTransformation extends ETLTransformation {
 
             case CITY_CITY_ID:
                 return loc.city;
+
+            case CITY_DMA_ID:
+                return loc.dma_code;
+
+            case CITY_AREA_ID:
+                return loc.area_code;
 
             case COUNTRYCODE_ID:
                 return loc.countryCode;
