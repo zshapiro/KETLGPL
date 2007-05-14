@@ -1,3 +1,6 @@
+/*
+ *  Copyright (C) May 14, 2007 Kinetic Networks, Inc. All Rights Reserved. 
+ */
 package com.kni.etl.ketl.smp;
 
 import com.kni.etl.dbutils.ResourcePool;
@@ -6,6 +9,7 @@ final class ETLBatchOptimizer extends BatchOptimizer {
 
     private int batchHistoryPos = 0, bestTimeEverBatchSize = -1, startSize = 25, inc = 100;
 
+    /** The batch size hist. */
     private int[] batchSizeHist = new int[5];
 
     private long[] batchSizeHistory = new long[5];
@@ -46,7 +50,6 @@ final class ETLBatchOptimizer extends BatchOptimizer {
 
                     int bestSize = this.batchSizeHist[bestTime];
 
-                    
                     StringBuilder sb = new StringBuilder("Auto-Tune Statistics\n\tBest batchsize:");
                     sb.append(bestSize);
                     sb.append(", time: ");
@@ -57,8 +60,8 @@ final class ETLBatchOptimizer extends BatchOptimizer {
                     sb.append(bestTimeEver);
                     sb.append("\n\tBatchsize range:" + this.batchSizeHist[1] + " to " + this.batchSizeHist[4]);
 
-                    ResourcePool.LogMessage(Thread.currentThread(),ResourcePool.INFO_MESSAGE,sb.toString());
-                    
+                    ResourcePool.LogMessage(Thread.currentThread(), ResourcePool.INFO_MESSAGE, sb.toString());
+
                     inc = bestSize / 10;
                     startSize = bestSize - (inc * 4);
                     this.batchSizeHist[0] = this.bestTimeEverBatchSize;
