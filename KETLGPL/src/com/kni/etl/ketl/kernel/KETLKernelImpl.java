@@ -48,7 +48,7 @@ public class KETLKernelImpl implements KETLKernel {
     private static int SleepTime = 500;
     public static boolean shutdown = false;
     public static boolean paused = false;
-
+    
     /**
      * Insert the method's description here. Creation date: (4/21/2002 8:40:01 AM)
      * 
@@ -157,13 +157,21 @@ public class KETLKernelImpl implements KETLKernel {
         }
 
         Document serverXMLConfig = null;
-
-        // decode arguments
+        String appPath = null;
+        
+        // this path is used to find important configuration files, eg. system.xml and KETLServers.xml; It must be initialized first.
         for (int index = 0; index < args.length; index++) {
+            if (args[index].indexOf("APP_PATH=") != -1) {
+                appPath = extractArguments(args[index], "APP_PATH=");
+                ResourcePool.LogMessage("Using KETL Path = " + appPath);
+            }
+        }
+        for (int index = 0; index < args.length; index++) {
+            // load the KETLServers.xml (configurations for metadata database servers) - full path needed in filename
             if (args[index].indexOf("CONFIG=") != -1) {
                 String filename = extractArguments(args[index], "CONFIG=");
                 ResourcePool.LogMessage("Using config file " + filename + " to start server");
-                serverXMLConfig = Metadata.LoadConfigFile(null, filename);
+                serverXMLConfig = Metadata.LoadConfigFile(appPath, filename);
             }
 
             if ((mdUser == null) && (args[index].indexOf("MD_USER=(") != -1)) {
@@ -177,7 +185,7 @@ public class KETLKernelImpl implements KETLKernel {
 
         if ((mdUser == null) & (mdServer == null) & (serverXMLConfig == null)) {
             ResourcePool.LogMessage("Using default config file to start server");
-            serverXMLConfig = Metadata.LoadConfigFile(null, Metadata.CONFIG_FILE);
+            serverXMLConfig = Metadata.LoadConfigFile(appPath, Metadata.CONFIG_FILE);
         }
 
         System.out.println(displayVersionInfo());
@@ -193,16 +201,17 @@ public class KETLKernelImpl implements KETLKernel {
                     ResourcePool.LogMessage("KETLServers.xml is missing the root node SERVERS, please review file");
                     System.exit(-1);
                 }
-                String servername = XMLHelper.getAttributeAsString(n.getAttributes(), "DEFAULTSERVER", "localhost");
-                serverNode = XMLHelper.findElementByName(serverXMLConfig, "SERVER", "NAME", servername);
+                mdServer = XMLHelper.getAttributeAsString(n.getAttributes(), "DEFAULTSERVER", "localhost");
+                serverNode = XMLHelper.findElementByName(serverXMLConfig, "SERVER", "NAME", mdServer);
 
                 if (serverNode == null) {
-                    serverNode = XMLHelper.findElementByName(serverXMLConfig, "SERVER", "NAME", "LOCALHOST");
+                    mdServer = "LOCALHOST";
+                    serverNode = XMLHelper.findElementByName(serverXMLConfig, "SERVER", "NAME", mdServer);
                 }
 
+                // look up via this machine's host name if no default server or "localhost" found
                 if (serverNode == null) {
                     InetAddress thisIp;
-
                     try {
                         thisIp = InetAddress.getLocalHost();
                         mdServer = thisIp.getHostName();
@@ -219,11 +228,13 @@ public class KETLKernelImpl implements KETLKernel {
                 serverNode = XMLHelper.findElementByName(serverXMLConfig, "SERVER", "NAME", mdServer);
             }
 
+            // At this point, if we do NOT have a serverNode then exit.
             if (serverNode == null) {
                 ResourcePool.LogMessage(Thread.currentThread(), ResourcePool.ERROR_MESSAGE,
                         "Problems getting server name, check config file");
                 System.exit(com.kni.etl.EngineConstants.SERVER_NAME_ERROR_EXIT_CODE);
             }
+            ResourcePool.LogMessage("Using metadata server: " + mdServer);
 
             mdUser = new String[5];
 
