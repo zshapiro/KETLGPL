@@ -48,7 +48,7 @@ public class KETLKernelImpl implements KETLKernel {
     private static int SleepTime = 500;
     public static boolean shutdown = false;
     public static boolean paused = false;
-    
+
     /**
      * Insert the method's description here. Creation date: (4/21/2002 8:40:01 AM)
      * 
@@ -143,7 +143,7 @@ public class KETLKernelImpl implements KETLKernel {
     public void run(java.lang.String[] args) {
         String[] mdUser = null;
         String mdServer = null;
-        Vector submittedJobs = new Vector();
+        Vector<ETLJob> submittedJobs = new Vector<ETLJob>();
         Object[][] jobManagers = null;
         ETLJob baseJob;
         Thread.currentThread().setName("ETLDaemon");
@@ -158,16 +158,16 @@ public class KETLKernelImpl implements KETLKernel {
 
         Document serverXMLConfig = null;
         String appPath = null;
-        
-        // this path is used to find important configuration files, eg. system.xml and KETLServers.xml; It must be initialized first.
+
+        // decode arguments
         for (int index = 0; index < args.length; index++) {
             if (args[index].indexOf("APP_PATH=") != -1) {
                 appPath = extractArguments(args[index], "APP_PATH=");
                 ResourcePool.LogMessage("Using KETL Path = " + appPath);
             }
         }
+
         for (int index = 0; index < args.length; index++) {
-            // load the KETLServers.xml (configurations for metadata database servers) - full path needed in filename
             if (args[index].indexOf("CONFIG=") != -1) {
                 String filename = extractArguments(args[index], "CONFIG=");
                 ResourcePool.LogMessage("Using config file " + filename + " to start server");
@@ -201,17 +201,16 @@ public class KETLKernelImpl implements KETLKernel {
                     ResourcePool.LogMessage("KETLServers.xml is missing the root node SERVERS, please review file");
                     System.exit(-1);
                 }
-                mdServer = XMLHelper.getAttributeAsString(n.getAttributes(), "DEFAULTSERVER", "localhost");
-                serverNode = XMLHelper.findElementByName(serverXMLConfig, "SERVER", "NAME", mdServer);
+                String servername = XMLHelper.getAttributeAsString(n.getAttributes(), "DEFAULTSERVER", "localhost");
+                serverNode = XMLHelper.findElementByName(serverXMLConfig, "SERVER", "NAME", servername);
 
                 if (serverNode == null) {
-                    mdServer = "LOCALHOST";
-                    serverNode = XMLHelper.findElementByName(serverXMLConfig, "SERVER", "NAME", mdServer);
+                    serverNode = XMLHelper.findElementByName(serverXMLConfig, "SERVER", "NAME", "LOCALHOST");
                 }
 
-                // look up via this machine's host name if no default server or "localhost" found
                 if (serverNode == null) {
                     InetAddress thisIp;
+
                     try {
                         thisIp = InetAddress.getLocalHost();
                         mdServer = thisIp.getHostName();
@@ -228,13 +227,11 @@ public class KETLKernelImpl implements KETLKernel {
                 serverNode = XMLHelper.findElementByName(serverXMLConfig, "SERVER", "NAME", mdServer);
             }
 
-            // At this point, if we do NOT have a serverNode then exit.
             if (serverNode == null) {
                 ResourcePool.LogMessage(Thread.currentThread(), ResourcePool.ERROR_MESSAGE,
                         "Problems getting server name, check config file");
                 System.exit(com.kni.etl.EngineConstants.SERVER_NAME_ERROR_EXIT_CODE);
             }
-            ResourcePool.LogMessage("Using metadata server: " + mdServer);
 
             mdUser = new String[5];
 
