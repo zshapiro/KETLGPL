@@ -32,6 +32,7 @@ import java.util.TimeZone;
 
 import com.kni.etl.ETLJob;
 import com.kni.etl.ETLJobStatus;
+import com.kni.etl.ETLStatus;
 import com.kni.etl.Metadata;
 import com.kni.etl.dbutils.ResourcePool;
 
@@ -61,7 +62,7 @@ public class MetadataScheduler extends Metadata {
         ResultSet m_rs = null;
 
         synchronized (this.oLock) {
-            ETLJobStatus etlJobStatus = new ETLJobStatus();
+            ETLStatus etlJobStatus = new ETLJobStatus();
 
             // Make metadata connection alive.
             refreshMetadataConnection();
@@ -127,10 +128,10 @@ public class MetadataScheduler extends Metadata {
                     insJobLogHistStmt = this.metadataConnection
                             .prepareStatement("insert into  "
                                     + tablePrefix
-                                    + "job_log_hist(job_id,load_id,start_date,status_id,end_date,message,dm_load_id,retry_attempts,execution_date,server_id"
+                                    + "job_log_hist(job_id,load_id,start_date,status_id,end_date,message,dm_load_id,retry_attempts,execution_date,stats,server_id"
                                     + JOB_LOG_LAST_UPDATE_COL
                                     + ") "
-                                    + "select job_id,load_id,start_date,status_id,end_date,message,dm_load_id,retry_attempts,execution_date,server_id"
+                                    + "select job_id,load_id,start_date,status_id,end_date,message,dm_load_id,retry_attempts,execution_date,stats,server_id"
                                     + JOB_LOG_HIST_LAST_UPDATE_COL + " from  " + tablePrefix
                                     + "job_log where load_id = ?");
                 }
