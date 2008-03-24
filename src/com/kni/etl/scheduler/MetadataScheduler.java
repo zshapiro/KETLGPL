@@ -27,6 +27,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collection;
 import java.util.Date;
 import java.util.TimeZone;
 
@@ -51,7 +52,7 @@ public class MetadataScheduler extends Metadata {
      * 
      * @return jobscheduler.EtlJob
      */
-    public ETLJob getNextJobInQueue(ArrayList pJobTypes, int pServerID) throws SQLException, java.lang.Exception {
+    public ETLJob getNextJobInQueue(Collection pJobTypes, int pServerID) throws SQLException, java.lang.Exception {
         PreparedStatement clearJobLogStmt = null;
         PreparedStatement clearJobErrorStmt = null;
         PreparedStatement insJobLogHistStmt = null;
@@ -69,8 +70,8 @@ public class MetadataScheduler extends Metadata {
 
             // clear job_log of all finished loads and move them to job_log_hist
             getfinishedLoads = this.metadataConnection.prepareStatement("SELECT LOAD_ID FROM  " + tablePrefix
-                    + loadTableName() + " WHERE (START_JOB_ID,LOAD_ID) IN (SELECT JOB_ID,LOAD_ID FROM  " + tablePrefix
-                    + "JOB_LOG WHERE STATUS_ID IN (?,?,?,?))");
+                    + loadTableName() + " A WHERE EXISTS (SELECT 1 FROM  " + tablePrefix + "JOB_LOG B "
+                    + "WHERE STATUS_ID IN (?,?,?,?) AND A.START_JOB_ID = B.JOB_ID AND A.LOAD_ID = B.LOAD_ID)");
 
             getfinishedLoads.setInt(1, ETLJobStatus.FAILED);
             getfinishedLoads.setInt(2, ETLJobStatus.CANCELLED);
@@ -358,9 +359,11 @@ public class MetadataScheduler extends Metadata {
             // NOTE: PENDING_CLOSURE_CANCELLED stops the workflow so no update here
             PreparedStatement mReadyList = this.metadataConnection
                     .prepareStatement("SELECT load_id, job_id, status_id FROM " + tablePrefix
-                            + "job_log WHERE STATUS_ID in (?, ?, ?) AND (load_id,job_id) IN "
-                            + " (SELECT   load_id,parent_job_id FROM  " + tablePrefix + "job_log a,  " + tablePrefix
-                            + "job_dependencie b " + " WHERE a.job_id = b.job_id GROUP BY load_id,parent_job_id "
+                            + "job_log AA WHERE STATUS_ID in (?, ?, ?) AND EXISTS "
+                            + " (SELECT 1 FROM  " + tablePrefix + "job_log a,  " + tablePrefix
+                            + "job_dependencie b " + " WHERE a.job_id = b.job_id " 
+                            + " AND aa.load_id = a.load_id and aa.job_id = b.parent_job_id"
+                            + " GROUP BY load_id,parent_job_id "
                             + " HAVING MAX (CASE WHEN continue_if_failed = 'Y' "
                             + "   THEN (CASE status_id WHEN ? THEN 0 WHEN ? THEN 0 WHEN ? THEN 0 ELSE 1 END) "
                             + "   ELSE (CASE status_id WHEN ? THEN  0 WHEN ? THEN 0 ELSE 1 END)"
@@ -418,13 +421,12 @@ public class MetadataScheduler extends Metadata {
             tStart = cal.getTime();
             PreparedStatement mRetryList = this.metadataConnection
                     .prepareStatement("select a.job_id, "
-                            + " case when (coalesce(a.retry_attempts,0)) < b.retry_attempts then ?  else  ?  end as status_id, "
-                            + " case when (coalesce(a.retry_attempts,0)) < b.retry_attempts then ? else ? end as message, "
+                            + " case when (coalesce(a.retry_attempts,0)) < b.retry_attempts then cast(? as int)  else  cast(? as int)  end as status_id, "
+                            + " case when (coalesce(a.retry_attempts,0)) < b.retry_attempts then cast(? as varchar(255)) else cast(? as varchar(255)) end as message, "
                             + " case when (coalesce(a.retry_attempts,0)) < b.retry_attempts then (coalesce(a.retry_attempts,0))+1 else a.retry_attempts end as retry_attempts "
                             + " from " + tablePrefix + "job_log a, " + tablePrefix + "job b "
                             + " where a.job_id = b.job_id " + " and status_id = ? " + " and "
-                            + this.currentTimeStampSyntax
-                            + " > a.end_date + ((interval '1' second) * seconds_before_retry)");
+                            + this.currentTimeStampSyntax + " > " + this.secondsBeforeRetry);
 
             mRetryList.setInt(1, ETLJobStatus.READY_TO_RUN);
             mRetryList.setInt(2, ETLJobStatus.PENDING_CLOSURE_FAILED);
@@ -602,8 +604,8 @@ public class MetadataScheduler extends Metadata {
                                 + "JOB_LOG A,  "
                                 + tablePrefix
                                 + "JOB B  WHERE A.JOB_ID = B.JOB_ID AND A.STATUS_ID IN (?) AND ( B.JOB_TYPE_ID IN (SELECT JOB_TYPE_ID FROM  "
-                                + tablePrefix + "JOB_TYPE WHERE CLASS_NAME IN (" + jobTypesSQL
-                                + ") OR B.JOB_TYPE_ID = 0)) ORDER BY START_DATE FOR UPDATE");
+                                + tablePrefix + "JOB_TYPE C WHERE C.DESCRIPTION IN (" + jobTypesSQL
+                                + ") OR B.JOB_TYPE_ID = 0)) ORDER BY START_DATE,A.LAST_UPDATE_DATE FOR UPDATE");
 
                 getNextJob.setInt(1, ETLJobStatus.READY_TO_RUN);
 
@@ -636,7 +638,7 @@ public class MetadataScheduler extends Metadata {
                         job.setRetryAttempts(m_rs.getInt(4));
                     }
                 }
-
+                
                 if (getNextJob != null) {
                     getNextJob.close();
                 }
