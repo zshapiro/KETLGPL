@@ -49,7 +49,7 @@ final class ETLBatchOptimizer extends BatchOptimizer {
                     }
 
                     int bestSize = this.batchSizeHist[bestTime];
-
+/*
                     StringBuilder sb = new StringBuilder("Auto-Tune Statistics\n\tBest batchsize:");
                     sb.append(bestSize);
                     sb.append(", time: ");
@@ -60,8 +60,8 @@ final class ETLBatchOptimizer extends BatchOptimizer {
                     sb.append(bestTimeEver);
                     sb.append("\n\tBatchsize range:" + this.batchSizeHist[1] + " to " + this.batchSizeHist[4]);
 
-                    ResourcePool.LogMessage(Thread.currentThread(), ResourcePool.INFO_MESSAGE, sb.toString());
-
+                    ResourcePool.LogMessage(Thread.currentThread(), ResourcePool.DEBUG_MESSAGE, sb.toString());
+*/
                     inc = bestSize / 10;
                     startSize = bestSize - (inc * 4);
                     this.batchSizeHist[0] = this.bestTimeEverBatchSize;
