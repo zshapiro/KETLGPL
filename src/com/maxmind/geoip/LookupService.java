@@ -712,7 +712,7 @@ public class LookupService {
                 }
             }
         } catch (IOException e) {
-            System.err.println("IO Exception while seting up segments");
+            System.err.println("[" + new java.util.Date() + "] IO Exception while seting up segments");
         }
         return record;
     }
@@ -820,7 +820,7 @@ public class LookupService {
         }
 
         // shouldn't reach here
-        System.err.println("Error seeking country while seeking " + ipAddress);
+        System.err.println("[" + new java.util.Date() + "] Error seeking country while seeking " + ipAddress);
         return 0;
     }
 
