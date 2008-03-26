@@ -23,10 +23,16 @@
 
 package com.kni.etl.ketl.kernel;
 
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
 import java.sql.SQLException;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.StringTokenizer;
@@ -118,6 +124,12 @@ public class KETLKernelImpl implements KETLKernel {
 		return (result);
 	}
 
+	private RandomAccessFile lckFile;
+
+	private FileChannel channel;
+
+	private FileLock exLck;
+
 	private String displayVersionInfo() {
 		EngineConstants.getVersion();
 		return "KETL Server\n";
@@ -148,6 +160,33 @@ public class KETLKernelImpl implements KETLKernel {
 	 * @param args
 	 *            an array of command-line arguments
 	 */
+
+	private static final String SERVER_LOCK = "ketlServer.lck";// lock file
+
+	public boolean lockServerInstance() {
+
+		try {
+			if (lckFile == null) {
+				lckFile = new RandomAccessFile(new File(SERVER_LOCK), "rw");
+			}
+
+			channel = lckFile.getChannel();
+
+			exLck = channel.tryLock(1, 1, false);
+			if (exLck != null) {
+				return true;
+			}
+		} catch (Throwable e) {
+			e.printStackTrace();
+			return false;
+		}
+		
+		ResourcePool.logError("A " + SERVER_LOCK
+				+ " file exists! A server maybe already running.");
+		System.exit(-1);
+		return false;
+	}
+
 	public void run(java.lang.String[] args) {
 		String[] mdUser = null;
 		String mdServer = null;
@@ -155,6 +194,10 @@ public class KETLKernelImpl implements KETLKernel {
 		Object[][] jobManagers = null;
 		ETLJob baseJob;
 		Thread.currentThread().setName("ETLDaemon");
+
+		if (lockServerInstance() == false)
+			ResourcePool.LogMessage(Thread.currentThread(), ResourcePool.WARNING_MESSAGE,
+					"A server lock could not be assigned, duplicate server instances can be started");
 
 		try {
 			baseJob = new ETLJob();
@@ -196,7 +239,7 @@ public class KETLKernelImpl implements KETLKernel {
 			serverXMLConfig = Metadata.LoadConfigFile(appPath, Metadata.CONFIG_FILE);
 		}
 
-		ResourcePool.LogMessage(Thread.currentThread(),ResourcePool.INFO_MESSAGE,this.displayVersionInfo());
+		ResourcePool.LogMessage(Thread.currentThread(), ResourcePool.INFO_MESSAGE, this.displayVersionInfo());
 
 		String passphrase = null;
 		if (serverXMLConfig != null) {
@@ -491,7 +534,8 @@ public class KETLKernelImpl implements KETLKernel {
 						}
 					}
 
-					// sometime the job might come from above, if it gets rejected at a later stage
+					// sometime the job might come from above, if it gets
+					// rejected at a later stage
 					if (job == null) {
 						job = md.getNextJobInQueue(jobTypesToRequest, serverID);
 					}
@@ -508,7 +552,7 @@ public class KETLKernelImpl implements KETLKernel {
 							// if non default job pass through to executors if
 							// executors accepting, if not return to job pool
 							if (this.submitJob(submittedJobs, jobManagers, job) == false) {
-								md.setJobStatus(job);								
+								md.setJobStatus(job);
 							}
 						}
 					}
