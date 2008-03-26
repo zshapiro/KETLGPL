@@ -24,14 +24,12 @@
 package com.kni.etl.ketl.kernel;
 
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
-import java.nio.channels.OverlappingFileLockException;
 import java.sql.SQLException;
 import java.util.HashSet;
 import java.util.Set;
@@ -180,13 +178,44 @@ public class KETLKernelImpl implements KETLKernel {
 			e.printStackTrace();
 			return false;
 		}
-		
-		ResourcePool.logError("A " + SERVER_LOCK
-				+ " file exists! A server maybe already running.");
-		System.exit(-1);
+
+		ResourcePool.logError("A " + SERVER_LOCK + " file exists! A server maybe already running.");
+		closeServerInstance(-1);
 		return false;
 	}
 
+	public void closeServerInstance(int exitCode) {
+
+		if (exLck != null) {
+			try {
+				exLck.release();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+
+		if (channel != null) {
+			try {
+				channel.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+
+		if (lckFile != null) {
+			try {
+				lckFile.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+			lckFile = null;
+		}
+		
+		if(exitCode != 0)
+			System.exit(exitCode);
+	}
+
+	
 	public void run(java.lang.String[] args) {
 		String[] mdUser = null;
 		String mdServer = null;
@@ -250,7 +279,7 @@ public class KETLKernelImpl implements KETLKernel {
 				Node n = XMLHelper.findElementByName(serverXMLConfig, "SERVERS", null, null);
 				if (n == null) {
 					ResourcePool.LogMessage("KETLServers.xml is missing the root node SERVERS, please review file");
-					System.exit(-1);
+					closeServerInstance(-1);
 				}
 				String servername = XMLHelper.getAttributeAsString(n.getAttributes(), "DEFAULTSERVER", "localhost");
 				serverNode = XMLHelper.findElementByName(serverXMLConfig, "SERVER", "NAME", servername);
@@ -268,7 +297,7 @@ public class KETLKernelImpl implements KETLKernel {
 					} catch (UnknownHostException e) {
 						ResourcePool.LogMessage(Thread.currentThread().getName(), ResourcePool.ERROR_MESSAGE,
 								"Problems getting localhost name " + e.getMessage());
-						System.exit(com.kni.etl.EngineConstants.SERVER_NAME_ERROR_EXIT_CODE);
+						closeServerInstance(com.kni.etl.EngineConstants.SERVER_NAME_ERROR_EXIT_CODE);
 					}
 				}
 			}
@@ -281,7 +310,7 @@ public class KETLKernelImpl implements KETLKernel {
 			if (serverNode == null) {
 				ResourcePool.LogMessage(Thread.currentThread(), ResourcePool.ERROR_MESSAGE,
 						"Problems getting server name, check config file");
-				System.exit(com.kni.etl.EngineConstants.SERVER_NAME_ERROR_EXIT_CODE);
+				closeServerInstance(com.kni.etl.EngineConstants.SERVER_NAME_ERROR_EXIT_CODE);
 			}
 
 			mdUser = new String[5];
@@ -301,7 +330,7 @@ public class KETLKernelImpl implements KETLKernel {
 			ResourcePool
 					.LogMessage("example:  MD_USER=(ETLUSER,ETLPWD,jdbc:oracle:oci8:@DEV3ORA,oracle.jdbc.driver.OracleDriver,QA) SERVERNAME=KNI01");
 
-			System.exit(com.kni.etl.EngineConstants.WRONG_ARGUMENT_EXIT_CODE);
+			closeServerInstance(com.kni.etl.EngineConstants.WRONG_ARGUMENT_EXIT_CODE);
 		}
 
 		MetadataScheduler md = null;
@@ -324,7 +353,7 @@ public class KETLKernelImpl implements KETLKernel {
 		} catch (Exception e1) {
 			ResourcePool.LogMessage(Thread.currentThread().getName(), ResourcePool.ERROR_MESSAGE,
 					"Connecting to metadata - " + e1.getMessage());
-			System.exit(com.kni.etl.EngineConstants.METADATA_ERROR_EXIT_CODE);
+			closeServerInstance(com.kni.etl.EngineConstants.METADATA_ERROR_EXIT_CODE);
 		}
 
 		if (mdServer == null) {
@@ -507,7 +536,7 @@ public class KETLKernelImpl implements KETLKernel {
 
 						ResourcePool.LogMessage("Shutdown complete");
 						md.closeMetadata();
-						System.exit(0);
+						closeServerInstance(0);
 
 						break;
 					}
@@ -611,6 +640,7 @@ public class KETLKernelImpl implements KETLKernel {
 		ResourcePool.LogMessage("Shutdown complete");
 
 		md.closeMetadata();
+		closeServerInstance(0);
 	}
 
 	private boolean submitJob(Vector<ETLJob> submittedJobs, Object[][] jobManagers, ETLJob job) {
