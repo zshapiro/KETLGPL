@@ -196,7 +196,7 @@ public class KETLKernelImpl implements KETLKernel {
 			serverXMLConfig = Metadata.LoadConfigFile(appPath, Metadata.CONFIG_FILE);
 		}
 
-		System.out.println(this.displayVersionInfo());
+		ResourcePool.LogMessage(Thread.currentThread(),ResourcePool.INFO_MESSAGE,this.displayVersionInfo());
 
 		String passphrase = null;
 		if (serverXMLConfig != null) {
