@@ -237,8 +237,9 @@ public class MetadataScheduler extends Metadata {
 
 			PreparedStatement updJobSched = null;
 
+			boolean scheduledJob = false;
 			// cycle through pending jobs setting next run date
-			while (m_rs.next()) {
+			while (m_rs.next() && scheduledJob == false) {
 				jobID = m_rs.getString(1);
 				month = m_rs.getInt(2);
 
@@ -324,6 +325,7 @@ public class MetadataScheduler extends Metadata {
 				updJobSched.executeUpdate();
 
 				executeJob(projectID, jobID, false, false);
+				scheduledJob = true;
 			}
 
 			// Close open resources

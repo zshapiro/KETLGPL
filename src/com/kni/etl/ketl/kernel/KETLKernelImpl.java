@@ -468,6 +468,12 @@ public class KETLKernelImpl implements KETLKernel {
 						if (currentTime > (mdCheckStatusTimer + 1000)) {
 							mdCheckStatusTimer = currentTime;
 							int xStatus = md.getJobStatusByExecutionId((submittedJobsToCheck[pos]).getJobExecutionID());
+							
+						    // job is in a critical state, remove and cleanup
+							if(xStatus == ETLJobStatus.FATAL_STATE) {
+								xStatus = ETLJobStatus.ATTEMPT_CANCEL;														
+							} 							
+							
 							if (xStatus == ETLJobStatus.ATTEMPT_CANCEL) {
 								(submittedJobsToCheck[pos]).getStatus().setStatusCode(ETLJobStatus.ATTEMPT_CANCEL);
 								if ((submittedJobsToCheck[pos]).isCancelled() == false)
