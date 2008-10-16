@@ -128,6 +128,7 @@ public class KETLKernelImpl implements KETLKernel {
 
 	private FileLock exLck;
 
+	
 	private String displayVersionInfo() {
 		EngineConstants.getVersion();
 		return "KETL Server\n";
@@ -217,6 +218,8 @@ public class KETLKernelImpl implements KETLKernel {
 
 	
 	public void run(java.lang.String[] args) {
+		
+	    fixOS();
 		String[] mdUser = null;
 		String mdServer = null;
 		Vector<ETLJob> submittedJobs = new Vector<ETLJob>();
@@ -386,12 +389,15 @@ public class KETLKernelImpl implements KETLKernel {
 					// get server executor
 					jobManagers[i][0] = new ETLJobManager((String) serverExecutors[i][0],
 							((Integer) serverExecutors[i][1]).intValue(), ((Integer) serverExecutors[i][2]).intValue(),
-							(String) serverExecutors[i][3]);
+							(String) serverExecutors[i][3],(String) serverExecutors[i][4]);
 
 					// get arraylist of associated job types
 					jobManagers[i][1] = md.getServerExecutorJobTypes((String) serverExecutors[i][0]);
 				}
 			}
+			
+			// do check for orphaned jobs
+			md.recoverServerJobs(serverID);
 		} catch (Exception e) {
 			ResourcePool.LogException(e, null);
 
@@ -401,7 +407,7 @@ public class KETLKernelImpl implements KETLKernel {
 		boolean completeShutdown = false;
 
 		long mdCheckStatusTimer = System.currentTimeMillis();
-
+		
 		while (completeShutdown == false) {
 			// listCurrentThreads();
 			try {
@@ -424,7 +430,7 @@ public class KETLKernelImpl implements KETLKernel {
 							md.setJobStatus(submittedJobsToCheck[pos]);
 						}
 
-						submittedJobs.remove(submittedJobsToCheck[pos]);
+						removeJobFromSubmittedJobs(submittedJobs,submittedJobsToCheck[pos],md);
 						(submittedJobsToCheck[pos]).cleanup();
 
 						break;
@@ -435,7 +441,7 @@ public class KETLKernelImpl implements KETLKernel {
 						(submittedJobsToCheck[pos]).writeLog();
 
 						md.setJobStatus(submittedJobsToCheck[pos]);
-						submittedJobs.remove(submittedJobsToCheck[pos]);
+						removeJobFromSubmittedJobs(submittedJobs,submittedJobsToCheck[pos],md);
 						(submittedJobsToCheck[pos]).cleanup();
 
 						break;
@@ -445,7 +451,7 @@ public class KETLKernelImpl implements KETLKernel {
 
 						(submittedJobsToCheck[pos]).getStatus().setStatusCode(ETLJobStatus.PENDING_CLOSURE_FAILED);
 						md.setJobStatus(submittedJobsToCheck[pos]);
-						submittedJobs.remove(submittedJobsToCheck[pos]);
+						removeJobFromSubmittedJobs(submittedJobs,submittedJobsToCheck[pos],md);
 						(submittedJobsToCheck[pos]).cleanup();
 						md.pauseServer(mdServer, true);
 						paused = true;
@@ -478,7 +484,7 @@ public class KETLKernelImpl implements KETLKernel {
 								(submittedJobsToCheck[pos]).getStatus().setStatusCode(ETLJobStatus.ATTEMPT_CANCEL);
 								if ((submittedJobsToCheck[pos]).isCancelled() == false)
 									(submittedJobsToCheck[pos]).cancelJob();
-								submittedJobsToCheck[pos].getStatus().messageChanged = true;
+								submittedJobsToCheck[pos].getStatus().statusChanged = true;
 							}
 						}
 						// now fall through to the attempt to cancel
@@ -486,10 +492,13 @@ public class KETLKernelImpl implements KETLKernel {
 					case ETLJobStatus.ATTEMPT_CANCEL:
 
 						// if message changed refresh status
-						if ((submittedJobsToCheck[pos]).getStatus().messageChanged) {
-							(submittedJobsToCheck[pos]).getStatus().messageChanged = false;
+						if ((submittedJobsToCheck[pos]).getStatus().statusChanged) {
+							(submittedJobsToCheck[pos]).getStatus().statusChanged = false;
 
 							md.setJobStatus(submittedJobsToCheck[pos]);
+						} else if((submittedJobsToCheck[pos]).getStatus().messageChanged) {
+							(submittedJobsToCheck[pos]).getStatus().messageChanged = false;
+							md.setJobMessage(submittedJobsToCheck[pos]);
 						}
 
 						break;
@@ -560,12 +569,12 @@ public class KETLKernelImpl implements KETLKernel {
 
 				if ((shutdown == false) && (paused == false)) {
 					// int managerToUse = -1;
-					Set<String> jobTypesToRequest = new HashSet();
+					Set<String[]> jobTypesToRequest = new HashSet();
 
 					// find a job types that can be serviced
 					for (int pos = 0; pos < jobManagers.length; pos++) {
 						if (((ETLJobManager) jobManagers[pos][0]).getStatus().getStatusCode() == ETLJobManagerStatus.READY) {
-							jobTypesToRequest.add(((ETLJobManager) jobManagers[pos][0]).getJobType());
+							jobTypesToRequest.add(new String[] {((ETLJobManager) jobManagers[pos][0]).getJobType(),((ETLJobManager) jobManagers[pos][0]).getPool()});
 						}
 					}
 
@@ -577,6 +586,7 @@ public class KETLKernelImpl implements KETLKernel {
 
 					// if job not null give to executor
 					if (job != null) {
+						ResourcePool.LogMessage(Thread.currentThread(),ResourcePool.INFO_MESSAGE, "Finding available executor for " + job.getJobID() + "[" + job.getLoadID() + "]");
 						if (job.getClass().getName().compareTo(baseJob.getClass().getName()) == 0) {
 							// if job is a default pass through job set status
 							// to successfull, do not submit to
@@ -649,6 +659,31 @@ public class KETLKernelImpl implements KETLKernel {
 		closeServerInstance(0);
 	}
 
+
+	private void fixOS() {
+		// solaris has a bug http://hudson.gotdns.com/wiki/display/HUDSON/Solaris+Issue+6276483
+		try{
+			java.security.Security.removeProvider("SunPKCS11-Solaris");
+		} catch(Exception e){
+			ResourcePool.logException(e);
+		}
+	}
+
+	private void removeJobFromSubmittedJobs(Vector<ETLJob> submittedJobs,
+			ETLJob job, Metadata md) throws SQLException, Exception {
+		
+		ResourcePool.LogMessage(Thread.currentThread(),ResourcePool.INFO_MESSAGE,"Remove job from execuitng list " + job.getJobID() + ", final status - " + job.getStatus().getStatusMessage());
+		
+		int initStatus = job.getStatus().getStatusCode();
+		submittedJobs.remove(job);
+		int finalStatus = md.getJobStatusByExecutionId(job.getJobExecutionID());
+		
+		if(finalStatus != ETLJobStatus.FATAL_STATE && initStatus != finalStatus){
+			ResourcePool.LogMessage(Thread.currentThread(),ResourcePool.ERROR_MESSAGE,"Status issue, expected " + initStatus + " found " + finalStatus);
+		}
+		
+	}
+
 	private boolean submitJob(Vector<ETLJob> submittedJobs, Object[][] jobManagers, ETLJob job) {
 		job.getStatus().setStatusCode(ETLJobStatus.READY_TO_RUN);
 
@@ -657,7 +692,7 @@ public class KETLKernelImpl implements KETLKernel {
 				if (((ETLJobManager) jobManagers[pos][0]).submitJob(job) == true) {
 					submittedJobs.add(job);
 					ResourcePool.LogMessage(Thread.currentThread(), ResourcePool.INFO_MESSAGE, "Submitting job "
-							+ job.getJobID() + " for execution");
+							+ job.getJobID() + " for execution, type = " + ((ETLJobManager) jobManagers[pos][0]).getJobType() + ",  pool = " + ((ETLJobManager) jobManagers[pos][0]).getPool());
 					return true;
 				} else {
 					job.getStatus().setStatusCode(ETLJobStatus.READY_TO_RUN);

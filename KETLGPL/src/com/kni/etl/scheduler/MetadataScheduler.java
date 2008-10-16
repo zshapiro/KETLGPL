@@ -30,6 +30,7 @@ import java.util.Collection;
 import com.kni.etl.ETLJob;
 import com.kni.etl.ETLJobStatus;
 import com.kni.etl.ETLStatus;
+import com.kni.etl.EngineConstants;
 import com.kni.etl.Metadata;
 import com.kni.etl.dbutils.ResourcePool;
 
@@ -48,7 +49,7 @@ public class MetadataScheduler extends Metadata {
 	 * 
 	 * @return jobscheduler.EtlJob
 	 */
-	public ETLJob getNextJobInQueue(Collection pJobTypes, int pServerID) throws SQLException, java.lang.Exception {
+	public ETLJob getNextJobInQueue(Collection<String[]> pJobTypes, int pServerID) throws SQLException, java.lang.Exception {
 		PreparedStatement clearJobLogStmt = null;
 		PreparedStatement clearJobErrorStmt = null;
 		PreparedStatement insJobLogHistStmt = null;
@@ -215,7 +216,7 @@ public class MetadataScheduler extends Metadata {
 							+ tablePrefix
 							+ "JOB B WHERE "
 							+ currentTimeStampSyntax
-							+ " >= NEXT_RUN_DATE AND A.JOB_ID = B.JOB_ID FOR UPDATE ");
+							+ " >= NEXT_RUN_DATE AND A.JOB_ID = B.JOB_ID ORDER BY NEXT_RUN_DATE FOR UPDATE ");
 
 			m_rs = dueJobs.executeQuery();
 
@@ -228,7 +229,7 @@ public class MetadataScheduler extends Metadata {
 			int hour_of_day;
 			int hour;
 			int scheduleID;
-			int projectID;
+			int projectID = -1;
 			int minute;
 			int minute_of_hour;
 
@@ -324,7 +325,7 @@ public class MetadataScheduler extends Metadata {
 				updJobSched.setString(3, jobID);
 				updJobSched.executeUpdate();
 
-				executeJob(projectID, jobID, false, false);
+				// cannot schedule more than one job at a time, or fetch out of sequence could occur
 				scheduledJob = true;
 			}
 
@@ -340,6 +341,10 @@ public class MetadataScheduler extends Metadata {
 			if (dueJobs != null) {
 				dueJobs.close();
 			}
+			
+			// execute scheduled job if found.
+			if(scheduledJob)
+				executeJob(projectID, jobID, false, false);
 
 			// mark jobs that have finished with appropiate status
 			// -- actually, this block is only getting the next jobs ready to run (process WAITING statuses)
@@ -550,27 +555,23 @@ public class MetadataScheduler extends Metadata {
 			ETLJob job = null;
 
 			if (ReturnNextJob == true) {
-				Object[] jobTypes = pJobTypes.toArray();
-
 				// create with job type of 0, empty job
-				String jobTypesSQL = null;
+				StringBuffer jobTypesSQL = new StringBuffer();
 
-				for (int a = 0; a < jobTypes.length; a++) {
-					if (jobTypesSQL == null) {
-						jobTypesSQL = "'" + (String) jobTypes[a] + "'";
-					} else {
-						jobTypesSQL = jobTypesSQL + ",'" + (String) jobTypes[a] + "'";
-					}
+				
+				for (String[] jobType : pJobTypes) {
+					jobTypesSQL.append("(C.DESCRIPTION = '"
+							+ (String) jobType[0] + "' AND nvl(B.POOL,'"
+							+ EngineConstants.DEFAULT_POOL + "') = '"
+							+ jobType[1] + "') OR ");
 				}
 
 				PreparedStatement getNextJob = metadataConnection
 						.prepareStatement(" SELECT A.JOB_ID,A.DM_LOAD_ID,A.LOAD_ID,A.RETRY_ATTEMPTS FROM  "
 								+ tablePrefix
-								+ "JOB_LOG A,  "
-								+ tablePrefix
-								+ "JOB B  WHERE A.JOB_ID = B.JOB_ID AND A.STATUS_ID IN (?) AND ( B.JOB_TYPE_ID IN (SELECT JOB_TYPE_ID FROM  "
-								+ tablePrefix + "JOB_TYPE C WHERE C.DESCRIPTION IN (" + jobTypesSQL
-								+ ") OR B.JOB_TYPE_ID = 0)) ORDER BY START_DATE,A.LAST_UPDATE_DATE FOR UPDATE");
+								+ "JOB_LOG A,  "+ tablePrefix+ "JOB B, " + tablePrefix + "JOB_TYPE C " +
+								"  WHERE A.JOB_ID = B.JOB_ID AND B.JOB_TYPE_ID = C.JOB_TYPE_ID AND A.STATUS_ID IN (?) " + 
+								"  AND ("+ jobTypesSQL + " B.JOB_TYPE_ID = 0) ORDER BY START_DATE,A.LAST_UPDATE_DATE FOR UPDATE");
 
 				getNextJob.setInt(1, ETLJobStatus.READY_TO_RUN);
 
@@ -584,7 +585,7 @@ public class MetadataScheduler extends Metadata {
 				while (m_rs.next() && (job == null)) {
 					if (jobToHandle == null) {
 						jobToHandle = m_rs.getString(1);
-
+						
 						if (updJobLog == null) {
 							updJobLog = metadataConnection.prepareStatement(" UPDATE  " + tablePrefix
 									+ "JOB_LOG SET STATUS_ID = ?, MESSAGE = ?, EXECUTION_DATE = "
