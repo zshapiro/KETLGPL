@@ -275,7 +275,7 @@ public class GeoIPTransformation extends ETLTransformation {
     }
 
     @Override
-    protected void close(boolean success) {
+    protected void close(boolean success, boolean jobFailed) {
         closeService(this.mCountryDBPath);
         closeService(this.mOrgDBPath);
         closeService(this.mISPDBPath);
