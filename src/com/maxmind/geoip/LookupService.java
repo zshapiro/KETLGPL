@@ -20,49 +20,49 @@
 
 package com.maxmind.geoip;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.RandomAccessFile;
+import java.io.*;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.util.HashMap;
-import java.util.Hashtable;
-import java.util.StringTokenizer;
+import java.lang.*;
 
-import javax.naming.NamingException;
-import javax.naming.directory.Attributes;
-import javax.naming.directory.DirContext;
-import javax.naming.directory.InitialDirContext;
+import java.util.*;
+
+import javax.naming.*;
+import javax.naming.directory.*;
+
 
 /**
- * Provides a lookup service for information based on an IP address. The location of a database file is supplied when
- * creating a lookup service instance. The edition of the database determines what information is available about an IP
- * address. See the DatabaseInfo class for further details.
- * <p>
- * The following code snippet demonstrates looking up the country that an IP address is from:
- * 
+ * Provides a lookup service for information based on an IP address. The location of
+ * a database file is supplied when creating a lookup service instance. The edition of
+ * the database determines what information is available about an IP address. See the
+ * DatabaseInfo class for further details.<p>
+ *
+ * The following code snippet demonstrates looking up the country that an IP
+ * address is from:
  * <pre>
  * // First, create a LookupService instance with the location of the database.
- * LookupService lookupService = new LookupService(&quot;c:\\geoip.dat&quot;);
+ * LookupService lookupService = new LookupService("c:\\geoip.dat");
  * // Assume we have a String ipAddress (in dot-decimal form).
  * Country country = lookupService.getCountry(ipAddress);
- * System.out.println(&quot;The country is: &quot; + country.getName());
- * System.out.println(&quot;The country code is: &quot; + country.getCode());
+ * System.out.println("The country is: " + country.getName());
+ * System.out.println("The country code is: " + country.getCode());
  * </pre>
- * 
- * In general, a single LookupService instance should be created and then reused repeatedly.
- * <p>
- * <i>Tip:</i> Those deploying the GeoIP API as part of a web application may find it difficult to pass in a File to
- * create the lookup service, as the location of the database may vary per deployment or may even be part of the
- * web-application. In this case, the database should be added to the classpath of the web-app. For example, by putting
- * it into the WEB-INF/classes directory of the web application. The following code snippet demonstrates how to create a
- * LookupService using a database that can be found on the classpath:
- * 
+ *
+ * In general, a single LookupService instance should be created and then reused
+ * repeatedly.<p>
+ *
+ * <i>Tip:</i> Those deploying the GeoIP API as part of a web application may find it
+ * difficult to pass in a File to create the lookup service, as the location of the
+ * database may vary per deployment or may even be part of the web-application. In this
+ * case, the database should be added to the classpath of the web-app. For example, by
+ * putting it into the WEB-INF/classes directory of the web application. The following code
+ * snippet demonstrates how to create a LookupService using a database that can be found
+ * on the classpath:
+ *
  * <pre>
- * String fileName = getClass().getResource(&quot;/GeoIP.dat&quot;).toExternalForm().substring(6);
- * LookupService lookupService = new LookupService(fileName);
- * </pre>
- * 
+ * String fileName = getClass().getResource("/GeoIP.dat").toExternalForm().substring(6);
+ * LookupService lookupService = new LookupService(fileName);</pre>
+ *
  * @author Matt Tucker (matt@jivesoftware.com)
  */
 public class LookupService {
@@ -71,6 +71,7 @@ public class LookupService {
      * Database file.
      */
     private RandomAccessFile file = null;
+    private File databaseFile = null;
 
     /**
      * Information about the database.
@@ -84,11 +85,13 @@ public class LookupService {
 
     int databaseSegments[];
     int recordLength;
-
+    
     String licenseKey;
     int dnsService = 0;
     int dboptions;
     byte dbbuffer[];
+    byte index_cache[];
+    long mtime;
     private final static int US_OFFSET = 1;
     private final static int CANADA_OFFSET = 677;
     private final static int WORLD_OFFSET = 1353;
@@ -100,10 +103,13 @@ public class LookupService {
     private final static int DATABASE_INFO_MAX_SIZE = 100;
     public final static int GEOIP_STANDARD = 0;
     public final static int GEOIP_MEMORY_CACHE = 1;
+    public final static int GEOIP_CHECK_CACHE = 2;
+    public final static int GEOIP_INDEX_CACHE = 4;
     public final static int GEOIP_UNKNOWN_SPEED = 0;
     public final static int GEOIP_DIALUP_SPEED = 1;
     public final static int GEOIP_CABLEDSL_SPEED = 2;
     public final static int GEOIP_CORPORATE_SPEED = 3;
+
 
     private final static int SEGMENT_RECORD_LENGTH = 3;
     private final static int STANDARD_RECORD_LENGTH = 3;
@@ -111,108 +117,124 @@ public class LookupService {
     private final static int MAX_RECORD_LENGTH = 4;
 
     private final static int MAX_ORG_RECORD_LENGTH = 300;
-    private final static int FULL_RECORD_LENGTH = 50;
+    private final static int FULL_RECORD_LENGTH = 60;
 
     private static final Country UNKNOWN_COUNTRY = new Country("--", "N/A");
 
     private final static HashMap hashmapcountryCodetoindex = new HashMap(512);
     private final static HashMap hashmapcountryNametoindex = new HashMap(512);
-    private final static String[] countryCode = { "--", "AP", "EU", "AD", "AE", "AF", "AG", "AI", "AL", "AM", "AN",
-            "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BM",
-            "BN", "BO", "BR", "BS", "BT", "BV", "BW", "BY", "BZ", "CA", "CC", "CD", "CF", "CG", "CH", "CI", "CK", "CL",
-            "CM", "CN", "CO", "CR", "CU", "CV", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE", "EG",
-            "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO", "FR", "FX", "GA", "GB", "GD", "GE", "GF", "GH", "GI",
-            "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT", "GU", "GW", "GY", "HK", "HM", "HN", "HR", "HT", "HU", "ID",
-            "IE", "IL", "IN", "IO", "IQ", "IR", "IS", "IT", "JM", "JO", "JP", "KE", "KG", "KH", "KI", "KM", "KN", "KP",
-            "KR", "KW", "KY", "KZ", "LA", "LB", "LC", "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD",
-            "MG", "MH", "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ",
-            "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ", "OM", "PA", "PE", "PF", "PG", "PH",
-            "PK", "PL", "PM", "PN", "PR", "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RU", "RW", "SA", "SB", "SC", "SD",
-            "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR", "ST", "SV", "SY", "SZ", "TC", "TD", "TF",
-            "TG", "TH", "TJ", "TK", "TM", "TN", "TO", "TP", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY",
-            "UZ", "VA", "VC", "VE", "VG", "VI", "VN", "VU", "WF", "WS", "YE", "YT", "YU", "ZA", "ZM", "ZR", "ZW", "A1",
-            "A2", "O1" };
+    private final static String[] countryCode = {
+	"--","AP","EU","AD","AE","AF","AG","AI","AL","AM","AN","AO","AQ","AR",
+	"AS","AT","AU","AW","AZ","BA","BB","BD","BE","BF","BG","BH","BI","BJ",
+	"BM","BN","BO","BR","BS","BT","BV","BW","BY","BZ","CA","CC","CD","CF",
+	"CG","CH","CI","CK","CL","CM","CN","CO","CR","CU","CV","CX","CY","CZ",
+	"DE","DJ","DK","DM","DO","DZ","EC","EE","EG","EH","ER","ES","ET","FI",
+	"FJ","FK","FM","FO","FR","FX","GA","GB","GD","GE","GF","GH","GI","GL",
+	"GM","GN","GP","GQ","GR","GS","GT","GU","GW","GY","HK","HM","HN","HR",
+	"HT","HU","ID","IE","IL","IN","IO","IQ","IR","IS","IT","JM","JO","JP",
+	"KE","KG","KH","KI","KM","KN","KP","KR","KW","KY","KZ","LA","LB","LC",
+	"LI","LK","LR","LS","LT","LU","LV","LY","MA","MC","MD","MG","MH","MK",
+	"ML","MM","MN","MO","MP","MQ","MR","MS","MT","MU","MV","MW","MX","MY",
+	"MZ","NA","NC","NE","NF","NG","NI","NL","NO","NP","NR","NU","NZ","OM",
+	"PA","PE","PF","PG","PH","PK","PL","PM","PN","PR","PS","PT","PW","PY",
+	"QA","RE","RO","RU","RW","SA","SB","SC","SD","SE","SG","SH","SI","SJ",
+	"SK","SL","SM","SN","SO","SR","ST","SV","SY","SZ","TC","TD","TF","TG",
+	"TH","TJ","TK","TM","TN","TO","TL","TR","TT","TV","TW","TZ","UA","UG",
+	"UM","US","UY","UZ","VA","VC","VE","VG","VI","VN","VU","WF","WS","YE",
+	"YT","RS","ZA","ZM","ME","ZW","A1","A2","O1","AX","GG","IM","JE"};
 
-    private final static String[] countryName = { "N/A", "Asia/Pacific Region", "Europe", "Andorra",
-            "United Arab Emirates", "Afghanistan", "Antigua and Barbuda", "Anguilla", "Albania", "Armenia",
-            "Netherlands Antilles", "Angola", "Antarctica", "Argentina", "American Samoa", "Austria", "Australia",
-            "Aruba", "Azerbaijan", "Bosnia and Herzegovina", "Barbados", "Bangladesh", "Belgium", "Burkina Faso",
-            "Bulgaria", "Bahrain", "Burundi", "Benin", "Bermuda", "Brunei Darussalam", "Bolivia", "Brazil", "Bahamas",
-            "Bhutan", "Bouvet Island", "Botswana", "Belarus", "Belize", "Canada", "Cocos (Keeling) Islands",
-            "Congo, The Democratic Republic of the", "Central African Republic", "Congo", "Switzerland",
-            "Cote D'Ivoire", "Cook Islands", "Chile", "Cameroon", "China", "Colombia", "Costa Rica", "Cuba",
-            "Cape Verde", "Christmas Island", "Cyprus", "Czech Republic", "Germany", "Djibouti", "Denmark", "Dominica",
-            "Dominican Republic", "Algeria", "Ecuador", "Estonia", "Egypt", "Western Sahara", "Eritrea", "Spain",
-            "Ethiopia", "Finland", "Fiji", "Falkland Islands (Malvinas)", "Micronesia, Federated States of",
-            "Faroe Islands", "France", "France, Metropolitan", "Gabon", "United Kingdom", "Grenada", "Georgia",
-            "French Guiana", "Ghana", "Gibraltar", "Greenland", "Gambia", "Guinea", "Guadeloupe", "Equatorial Guinea",
-            "Greece", "South Georgia and the South Sandwich Islands", "Guatemala", "Guam", "Guinea-Bissau", "Guyana",
-            "Hong Kong", "Heard Island and McDonald Islands", "Honduras", "Croatia", "Haiti", "Hungary", "Indonesia",
-            "Ireland", "Israel", "India", "British Indian Ocean Territory", "Iraq", "Iran, Islamic Republic of",
-            "Iceland", "Italy", "Jamaica", "Jordan", "Japan", "Kenya", "Kyrgyzstan", "Cambodia", "Kiribati", "Comoros",
-            "Saint Kitts and Nevis", "Korea, Democratic People's Republic of", "Korea, Republic of", "Kuwait",
-            "Cayman Islands", "Kazakstan", "Lao People's Democratic Republic", "Lebanon", "Saint Lucia",
-            "Liechtenstein", "Sri Lanka", "Liberia", "Lesotho", "Lithuania", "Luxembourg", "Latvia",
-            "Libyan Arab Jamahiriya", "Morocco", "Monaco", "Moldova, Republic of", "Madagascar", "Marshall Islands",
-            "Macedonia", "Mali", "Myanmar", "Mongolia", "Macau", "Northern Mariana Islands", "Martinique",
-            "Mauritania", "Montserrat", "Malta", "Mauritius", "Maldives", "Malawi", "Mexico", "Malaysia", "Mozambique",
-            "Namibia", "New Caledonia", "Niger", "Norfolk Island", "Nigeria", "Nicaragua", "Netherlands", "Norway",
-            "Nepal", "Nauru", "Niue", "New Zealand", "Oman", "Panama", "Peru", "French Polynesia", "Papua New Guinea",
-            "Philippines", "Pakistan", "Poland", "Saint Pierre and Miquelon", "Pitcairn Islands", "Puerto Rico",
-            "" + "Palestinian Territory, Occupied", "Portugal", "Palau", "Paraguay", "Qatar", "Reunion", "Romania",
-            "Russian Federation", "Rwanda", "Saudi Arabia", "Solomon Islands", "Seychelles", "Sudan", "Sweden",
-            "Singapore", "Saint Helena", "Slovenia", "Svalbard and Jan Mayen", "Slovakia", "Sierra Leone",
-            "San Marino", "Senegal", "Somalia", "Suriname", "Sao Tome and Principe", "El Salvador",
-            "Syrian Arab Republic", "Swaziland", "Turks and Caicos Islands", "Chad", "French Southern Territories",
-            "Togo", "Thailand", "Tajikistan", "Tokelau", "Turkmenistan", "Tunisia", "Tonga", "East Timor", "Turkey",
-            "Trinidad and Tobago", "Tuvalu", "Taiwan", "Tanzania, United Republic of", "Ukraine", "Uganda",
-            "United States Minor Outlying Islands", "United States", "Uruguay", "Uzbekistan",
-            "Holy See (Vatican City State)", "Saint Vincent and the Grenadines", "Venezuela",
-            "Virgin Islands, British", "Virgin Islands, U.S.", "Vietnam", "Vanuatu", "Wallis and Futuna", "Samoa",
-            "Yemen", "Mayotte", "Yugoslavia", "South Africa", "Zambia", "Zaire", "Zimbabwe", "Anonymous Proxy",
-            "Satellite Provider", "Other" };
+    private final static String[] countryName = {
+	"N/A","Asia/Pacific Region","Europe","Andorra","United Arab Emirates",
+	"Afghanistan","Antigua and Barbuda","Anguilla","Albania","Armenia",
+	"Netherlands Antilles","Angola","Antarctica","Argentina","American Samoa",
+	"Austria","Australia","Aruba","Azerbaijan","Bosnia and Herzegovina",
+	"Barbados","Bangladesh","Belgium","Burkina Faso","Bulgaria","Bahrain",
+	"Burundi","Benin","Bermuda","Brunei Darussalam","Bolivia","Brazil","Bahamas",
+	"Bhutan","Bouvet Island","Botswana","Belarus","Belize","Canada",
+	"Cocos (Keeling) Islands","Congo, The Democratic Republic of the",
+	"Central African Republic","Congo","Switzerland","Cote D'Ivoire",
+	"Cook Islands","Chile","Cameroon","China","Colombia","Costa Rica","Cuba",
+	"Cape Verde","Christmas Island","Cyprus","Czech Republic","Germany",
+	"Djibouti","Denmark","Dominica","Dominican Republic","Algeria","Ecuador",
+	"Estonia","Egypt","Western Sahara","Eritrea","Spain","Ethiopia","Finland",
+	"Fiji","Falkland Islands (Malvinas)","Micronesia, Federated States of",
+	"Faroe Islands","France","France, Metropolitan","Gabon","United Kingdom",
+	"Grenada","Georgia","French Guiana","Ghana","Gibraltar","Greenland","Gambia",
+	"Guinea","Guadeloupe","Equatorial Guinea","Greece",
+	"South Georgia and the South Sandwich Islands","Guatemala","Guam",
+	"Guinea-Bissau","Guyana","Hong Kong","Heard Island and McDonald Islands",
+	"Honduras","Croatia","Haiti","Hungary","Indonesia","Ireland","Israel","India",
+	"British Indian Ocean Territory","Iraq","Iran, Islamic Republic of",
+	"Iceland","Italy","Jamaica","Jordan","Japan","Kenya","Kyrgyzstan","Cambodia",
+	"Kiribati","Comoros","Saint Kitts and Nevis",
+	"Korea, Democratic People's Republic of","Korea, Republic of","Kuwait",
+	"Cayman Islands","Kazakstan","Lao People's Democratic Republic","Lebanon",
+	"Saint Lucia","Liechtenstein","Sri Lanka","Liberia","Lesotho","Lithuania",
+	"Luxembourg","Latvia","Libyan Arab Jamahiriya","Morocco","Monaco",
+	"Moldova, Republic of","Madagascar","Marshall Islands",
+	"Macedonia","Mali","Myanmar","Mongolia",
+	"Macau","Northern Mariana Islands","Martinique","Mauritania","Montserrat",
+	"Malta","Mauritius","Maldives","Malawi","Mexico","Malaysia","Mozambique",
+	"Namibia","New Caledonia","Niger","Norfolk Island","Nigeria","Nicaragua",
+	"Netherlands","Norway","Nepal","Nauru","Niue","New Zealand","Oman","Panama",
+	"Peru","French Polynesia","Papua New Guinea","Philippines","Pakistan",
+	"Poland","Saint Pierre and Miquelon","Pitcairn Islands","Puerto Rico","" +
+	"Palestinian Territory","Portugal","Palau","Paraguay","Qatar",
+	"Reunion","Romania","Russian Federation","Rwanda","Saudi Arabia",
+	"Solomon Islands","Seychelles","Sudan","Sweden","Singapore","Saint Helena",
+	"Slovenia","Svalbard and Jan Mayen","Slovakia","Sierra Leone","San Marino",
+	"Senegal","Somalia","Suriname","Sao Tome and Principe","El Salvador",
+	"Syrian Arab Republic","Swaziland","Turks and Caicos Islands","Chad",
+	"French Southern Territories","Togo","Thailand","Tajikistan","Tokelau",
+	"Turkmenistan","Tunisia","Tonga","Timor-Leste","Turkey","Trinidad and Tobago",
+	"Tuvalu","Taiwan","Tanzania, United Republic of","Ukraine","Uganda",
+	"United States Minor Outlying Islands","United States","Uruguay","Uzbekistan",
+	"Holy See (Vatican City State)","Saint Vincent and the Grenadines",
+	"Venezuela","Virgin Islands, British","Virgin Islands, U.S.","Vietnam",
+	"Vanuatu","Wallis and Futuna","Samoa","Yemen","Mayotte","Serbia",
+	"South Africa","Zambia","Montenegro","Zimbabwe","Anonymous Proxy",
+	"Satellite Provider","Other","Aland Islands","Guernsey","Isle of Man","Jersey"};
+
 
     /**
      * Create a new distributed lookup service using the license key
-     * 
+     *
      * @param databaseFile String representation of the database file.
      * @param licenseKey license key provided by Maxmind to access distributed service
      */
-    public LookupService(String databaseFile, String licenseKey) throws IOException {
+    public LookupService(String databaseFile,String licenseKey) throws IOException {
         this(new File(databaseFile));
         this.licenseKey = licenseKey;
         dnsService = 1;
     }
-
     /**
      * Create a new distributed lookup service using the license key
-     * 
+     *
      * @param databaseFile the database file.
      * @param licenseKey license key provided by Maxmind to access distributed service
      */
-    public LookupService(File databaseFile, String licenseKey) throws IOException {
+    public LookupService(File databaseFile,String licenseKey) throws IOException {
         this(databaseFile);
         this.licenseKey = licenseKey;
         dnsService = 1;
     }
-
     /**
      * Create a new distributed lookup service using the license key
-     * 
-     * @param options Resevered for future use
+     *
+     * @param options  Resevered for future use
      * @param licenseKey license key provided by Maxmind to access distributed service
      */
-    public LookupService(int options, String licenseKey) throws IOException {
+    public LookupService(int options,String licenseKey) throws IOException {
         this.licenseKey = licenseKey;
         dnsService = 1;
         init();
     }
-
     /**
      * Create a new lookup service using the specified database file.
-     * 
+     *
      * @param databaseFile String representation of the database file.
-     * @throws java.io.IOException if an error occured creating the lookup service from the database file.
+     * @throws java.io.IOException if an error occured creating the lookup service
+     *      from the database file.
      */
     public LookupService(String databaseFile) throws IOException {
         this(new File(databaseFile));
@@ -220,60 +242,69 @@ public class LookupService {
 
     /**
      * Create a new lookup service using the specified database file.
-     * 
+     *
      * @param databaseFile the database file.
-     * @throws java.io.IOException if an error occured creating the lookup service from the database file.
+     * @throws java.io.IOException if an error occured creating the lookup service
+     *      from the database file.
      */
     public LookupService(File databaseFile) throws IOException {
+        this.databaseFile = databaseFile;
         this.file = new RandomAccessFile(databaseFile, "r");
         init();
     }
 
     /**
      * Create a new lookup service using the specified database file.
-     * 
+     *
      * @param databaseFile String representation of the database file.
-     * @param options database flags to use when opening the database GEOIP_STANDARD read database from disk
-     *            GEOIP_MEMORY_CACHE cache the database in RAM and read it from RAM
-     * @throws java.io.IOException if an error occured creating the lookup service from the database file.
+     * @param options database flags to use when opening the database
+     * GEOIP_STANDARD read database from disk
+     * GEOIP_MEMORY_CACHE cache the database in RAM and read it from RAM
+     * @throws java.io.IOException if an error occured creating the lookup service
+     *      from the database file.
      */
-    public LookupService(String databaseFile, int options) throws IOException {
-        this(new File(databaseFile), options);
+    public LookupService(String databaseFile, int options) throws IOException{
+        this(new File(databaseFile),options);
     }
 
     /**
      * Create a new lookup service using the specified database file.
-     * 
+     *
      * @param databaseFile the database file.
-     * @param options database flags to use when opening the database GEOIP_STANDARD read database from disk
-     *            GEOIP_MEMORY_CACHE cache the database in RAM and read it from RAM
-     * @throws java.io.IOException if an error occured creating the lookup service from the database file.
+     * @param options database flags to use when opening the database
+     * GEOIP_STANDARD read database from disk
+     * GEOIP_MEMORY_CACHE cache the database in RAM and read it from RAM
+     * @throws java.io.IOException if an error occured creating the lookup service
+     *      from the database file.
      */
-    public LookupService(File databaseFile, int options) throws IOException {
-        this.file = new RandomAccessFile(databaseFile, "r");
-        dboptions = options;
-        init();
+    public LookupService(File databaseFile, int options) throws IOException{
+        this.databaseFile = databaseFile;
+	this.file = new RandomAccessFile(databaseFile, "r");
+	dboptions = options;
+	init();
     }
-
     /**
      * Reads meta-data from the database file.
-     * 
+     *
      * @throws java.io.IOException if an error occurs reading from the database file.
      */
     private void init() throws IOException {
         int i, j;
-        byte[] delim = new byte[3];
-        byte[] buf = new byte[SEGMENT_RECORD_LENGTH];
+        byte [] delim = new byte[3];
+        byte [] buf = new byte[SEGMENT_RECORD_LENGTH];
 
-        for (i = 0; i < 233; i++) {
-            hashmapcountryCodetoindex.put(countryCode[i], new Integer(i));
-            hashmapcountryNametoindex.put(countryName[i], new Integer(i));
-        }
-        if (file == null) {
-            // distributed service only
-            return;
-        }
-        file.seek(file.length() - 3);
+	if (file == null) {
+	    // distributed service only
+	    for (i = 0; i < 233;i++){
+		hashmapcountryCodetoindex.put(countryCode[i],new Integer(i));
+		hashmapcountryNametoindex.put(countryName[i],new Integer(i));
+	    }
+	    return;
+	}
+	if ((dboptions & GEOIP_CHECK_CACHE) != 0) {
+            mtime = databaseFile.lastModified();
+	}
+	file.seek(file.length() - 3);
         for (i = 0; i < STRUCTURE_INFO_MAX_SIZE; i++) {
             file.read(delim);
             if (delim[0] == -1 && delim[1] == -1 && delim[2] == -1) {
@@ -287,79 +318,96 @@ public class LookupService {
                     databaseSegments = new int[1];
                     databaseSegments[0] = STATE_BEGIN_REV0;
                     recordLength = STANDARD_RECORD_LENGTH;
-                }
-                else if (databaseType == DatabaseInfo.REGION_EDITION_REV1) {
+                }else if (databaseType == DatabaseInfo.REGION_EDITION_REV1){
                     databaseSegments = new int[1];
                     databaseSegments[0] = STATE_BEGIN_REV1;
                     recordLength = STANDARD_RECORD_LENGTH;
-                }
-                else if (databaseType == DatabaseInfo.CITY_EDITION_REV0
-                        || databaseType == DatabaseInfo.CITY_EDITION_REV1 || databaseType == DatabaseInfo.ORG_EDITION
-                        || databaseType == DatabaseInfo.ISP_EDITION || databaseType == DatabaseInfo.ASNUM_EDITION) {
-                    databaseSegments = new int[1];
-                    databaseSegments[0] = 0;
-                    if (databaseType == DatabaseInfo.CITY_EDITION_REV0
-                            || databaseType == DatabaseInfo.CITY_EDITION_REV1) {
-                        recordLength = STANDARD_RECORD_LENGTH;
-                    }
-                    else {
-                        recordLength = ORG_RECORD_LENGTH;
-                    }
-                    file.read(buf);
-                    for (j = 0; j < SEGMENT_RECORD_LENGTH; j++) {
-                        databaseSegments[0] += (unsignedByteToInt(buf[j]) << (j * 8));
-                    }
-                }
+		}
+                else if (databaseType == DatabaseInfo.CITY_EDITION_REV0 ||
+			 databaseType == DatabaseInfo.CITY_EDITION_REV1 ||
+			 databaseType == DatabaseInfo.ORG_EDITION ||
+			 databaseType == DatabaseInfo.ISP_EDITION ||
+			 databaseType == DatabaseInfo.ASNUM_EDITION) {
+			databaseSegments = new int[1];
+			databaseSegments[0] = 0;
+			if (databaseType == DatabaseInfo.CITY_EDITION_REV0 ||
+			    databaseType == DatabaseInfo.CITY_EDITION_REV1) {
+			    recordLength = STANDARD_RECORD_LENGTH;
+			}
+			else {
+			    recordLength = ORG_RECORD_LENGTH;
+			}
+			file.read(buf);
+			for (j = 0; j < SEGMENT_RECORD_LENGTH; j++) {
+			    databaseSegments[0] += (unsignedByteToInt(buf[j]) << (j * 8));
+			}
+		    }
                 break;
             }
             else {
                 file.seek(file.getFilePointer() - 4);
             }
         }
-        if ((databaseType == DatabaseInfo.COUNTRY_EDITION) | (databaseType == DatabaseInfo.PROXY_EDITION)
-                | (databaseType == DatabaseInfo.NETSPEED_EDITION)) {
+        if ((databaseType == DatabaseInfo.COUNTRY_EDITION) |
+	    (databaseType == DatabaseInfo.PROXY_EDITION) |
+	    (databaseType == DatabaseInfo.NETSPEED_EDITION)) {
             databaseSegments = new int[1];
             databaseSegments[0] = COUNTRY_BEGIN;
             recordLength = STANDARD_RECORD_LENGTH;
         }
         if ((dboptions & GEOIP_MEMORY_CACHE) == 1) {
-            int l = (int) file.length();
-            dbbuffer = new byte[l];
+	    int l = (int) file.length();
+	    dbbuffer = new byte[l];
+	    file.seek(0);
+	    file.read(dbbuffer,0,l);
+	    databaseInfo = this.getDatabaseInfo();
+	    file.close();
+	}
+        if ((dboptions & GEOIP_INDEX_CACHE) != 0) {
+          int l = databaseSegments[0] * recordLength * 2;
+          index_cache = new byte[l];
+          if (index_cache != null){
             file.seek(0);
-            file.read(dbbuffer, 0, l);
+            file.read(index_cache,0,l);     
+          }          
+        } else {
+          index_cache = null;
         }
-    }
+     }
 
     /**
      * Closes the lookup service.
      */
     public void close() {
-        try {
-            file.close();
+	try {
+	    if (file != null){
+		file.close();
+	    }
             file = null;
-        } catch (Exception e) {
         }
+        catch (Exception e) { }
     }
 
     /**
      * Returns the country the IP address is in.
-     * 
+     *
      * @param ipAddress String version of an IP address, i.e. "127.0.0.1"
      * @return the country the IP address is from.
      */
     public Country getCountry(String ipAddress) {
-        InetAddress addr;
-        try {
-            addr = InetAddress.getByName(ipAddress);
-        } catch (UnknownHostException e) {
+	InetAddress addr;
+	try {
+	    addr = InetAddress.getByName(ipAddress);
+	}
+	catch (UnknownHostException e) {
             return UNKNOWN_COUNTRY;
-        }
-        return getCountry(bytesToLong(addr.getAddress()));
+	}
+	return getCountry(bytesToLong(addr.getAddress()));
     }
 
     /**
      * Returns the country the IP address is in.
-     * 
+     *
      * @param ipAddress the IP address.
      * @return the country the IP address is from.
      */
@@ -369,12 +417,12 @@ public class LookupService {
 
     /**
      * Returns the country the IP address is in.
-     * 
+     *
      * @param ipAddress the IP address in long format.
      * @return the country the IP address is from.
      */
     public Country getCountry(long ipAddress) {
-        if (file == null) {
+        if (file == null && (dboptions & GEOIP_MEMORY_CACHE) == 0) {
             throw new IllegalStateException("Database has been closed.");
         }
         int ret = seekCountry(ipAddress) - COUNTRY_BEGIN;
@@ -390,7 +438,8 @@ public class LookupService {
         InetAddress addr;
         try {
             addr = InetAddress.getByName(ipAddress);
-        } catch (UnknownHostException e) {
+        }
+        catch (UnknownHostException e) {
             return 0;
         }
         return getID(bytesToLong(addr.getAddress()));
@@ -401,16 +450,16 @@ public class LookupService {
     }
 
     public int getID(long ipAddress) {
-        if (file == null) {
+        if (file == null && (dboptions & GEOIP_MEMORY_CACHE) == 0) {
             throw new IllegalStateException("Database has been closed.");
         }
-        int ret = seekCountry(ipAddress) - databaseSegments[0];
-        return ret;
+	int ret = seekCountry(ipAddress) - databaseSegments[0];
+	return ret;
     }
 
     /**
      * Returns information about the database.
-     * 
+     *
      * @return database info.
      */
     public DatabaseInfo getDatabaseInfo() {
@@ -420,11 +469,12 @@ public class LookupService {
         try {
             // Synchronize since we're accessing the database file.
             synchronized (this) {
+            _check_mtime();
                 boolean hasStructureInfo = false;
-                byte[] delim = new byte[3];
+                byte [] delim = new byte[3];
                 // Advance to part of file where database info is stored.
                 file.seek(file.length() - 3);
-                for (int i = 0; i < STRUCTURE_INFO_MAX_SIZE; i++) {
+                for (int i=0; i<STRUCTURE_INFO_MAX_SIZE; i++) {
                     file.read(delim);
                     if (delim[0] == 255 && delim[1] == 255 && delim[2] == 255) {
                         hasStructureInfo = true;
@@ -439,22 +489,40 @@ public class LookupService {
                     file.seek(file.length() - 3);
                 }
                 // Find the database info string.
-                for (int i = 0; i < DATABASE_INFO_MAX_SIZE; i++) {
+                for (int i=0; i<DATABASE_INFO_MAX_SIZE; i++) {
                     file.read(delim);
-                    if (delim[0] == 0 && delim[1] == 0 && delim[2] == 0) {
+                    if (delim[0]==0 && delim[1]==0 && delim[2]==0) {
                         byte[] dbInfo = new byte[i];
                         file.read(dbInfo);
                         // Create the database info object using the string.
                         this.databaseInfo = new DatabaseInfo(new String(dbInfo));
                         return databaseInfo;
                     }
-                    file.seek(file.getFilePointer() - 4);
+                    file.seek(file.getFilePointer() -4);
                 }
             }
-        } catch (Exception e) {
+        }
+        catch (Exception e) {
             e.printStackTrace();
         }
         return new DatabaseInfo("");
+    }
+
+    synchronized void _check_mtime(){
+      try {
+        if ((dboptions & GEOIP_CHECK_CACHE) != 0){
+          long t = databaseFile.lastModified();
+          if (t != mtime){
+            /* GeoIP Database file updated */
+            /* refresh filehandle */
+            file.close();
+            file = new RandomAccessFile(databaseFile,"r");
+	    init();
+          }
+        }
+      } catch (IOException e) {
+        System.out.println("file not found");
+      }
     }
 
     // for GeoIP City only
@@ -468,33 +536,34 @@ public class LookupService {
             InetAddress addr;
             try {
                 addr = InetAddress.getByName(str);
-            } catch (UnknownHostException e) {
+            }
+            catch (UnknownHostException e) {
                 return null;
             }
 
             return getLocation(addr);
-        }
-        else {
+        } else {
             String str2 = getDnsAttributes(str);
-            return getLocationwithdnsservice(str2);
-            // TODO if DNS is not available, go to local file as backup
-        }
+ 	    return getLocationwithdnsservice(str2);
+	    // TODO if DNS is not available, go to local file as backup
+	}
     }
 
     String getDnsAttributes(String ip) {
         try {
             Hashtable env = new Hashtable();
             env.put("java.naming.factory.initial", "com.sun.jndi.dns.DnsContextFactory");
-            // TODO don't specify ws1, instead use ns servers for s.maxmind.com
-            env.put("java.naming.provider.url", "dns://ws1.maxmind.com/");
+	    // TODO don't specify ws1, instead use ns servers for s.maxmind.com
+            env.put("java.naming.provider.url","dns://ws1.maxmind.com/");
 
             DirContext ictx = new InitialDirContext(env);
-            Attributes attrs = ictx.getAttributes(licenseKey + "." + ip + ".s.maxmind.com", new String[] { "txt" });
-            // System.out.println(attrs.get("txt").get());
+            Attributes attrs = ictx.getAttributes(licenseKey + "." + ip + ".s.maxmind.com", new String[] {"txt"});
+            //System.out.println(attrs.get("txt").get());
             String str = attrs.get("txt").get().toString();
             return str;
-        } catch (NamingException e) {
-            // TODO fix this to handle exceptions
+        }
+        catch(NamingException e) {
+	    // TODO fix this to handle exceptions
             System.out.println("DNS error");
             return null;
         }
@@ -505,77 +574,76 @@ public class LookupService {
         Location record = new Location();
         String key;
         String value;
-        StringTokenizer st = new StringTokenizer(str, ";=\"");
+        StringTokenizer st = new StringTokenizer(str,";=\""); 
         while (st.hasMoreTokens()) {
-            key = st.nextToken();
+	    key = st.nextToken();
             if (st.hasMoreTokens()) {
                 value = st.nextToken();
-            }
-            else {
-                value = "";
-            }
-            if (key.equals("co")) {
-                Integer i = (Integer) hashmapcountryCodetoindex.get(value);
-                record.countryCode = value;
-                record.countryName = countryName[i.intValue()];
-            }
-            if (key.equals("ci")) {
-                record.city = value;
-            }
-            if (key.equals("re")) {
-                record.region = value;
-            }
-            if (key.equals("zi")) {
-                record.postalCode = value;
-            }
-            // TODO, ISP and Organization
-            // if (key.equals("or")) {
-            // record.org = value;
-            // }
-            // if (key.equals("is")) {
-            // record.isp = value;
-            // }
-            if (key.equals("la")) {
-                try {
-                    record.latitude = Float.parseFloat(value);
-                } catch (NumberFormatException e) {
-                    record.latitude = 0;
-                }
-            }
-            if (key.equals("lo")) {
-                try {
-                    record.longitude = Float.parseFloat(value);
-                } catch (NumberFormatException e) {
-                    record.latitude = 0;
-                }
-            }
-            if (key.equals("dm")) {
-                try {
-                    record.dma_code = Integer.parseInt(value);
-                } catch (NumberFormatException e) {
-                    record.dma_code = 0;
-                }
-            }
-            if (key.equals("ac")) {
-                try {
-                    record.area_code = Integer.parseInt(value);
-                } catch (NumberFormatException e) {
-                    record.area_code = 0;
-                }
-            }
-        }
+            } else {
+	        value = "";}
+	    if (key.equals("co")) {
+		Integer i = (Integer)hashmapcountryCodetoindex.get(value);
+		record.countryCode = value;
+		record.countryName = countryName[i.intValue()];
+	    }
+	    if (key.equals("ci")) {
+		record.city = value;
+	    }
+	    if (key.equals("re")) {
+		record.region = value;
+	    }
+	    if (key.equals("zi")) {
+	        record.postalCode = value;
+	    }
+	    // TODO, ISP and Organization
+	    //if (key.equals("or")) {
+	    //record.org = value;
+	    //}
+	    //if (key.equals("is")) {
+	    //record.isp = value;
+	    //}
+	    if (key.equals("la")) {
+		try{
+		    record.latitude = Float.parseFloat(value);
+		} catch(NumberFormatException e) {
+		    record.latitude = 0;
+		}
+	    }
+	    if (key.equals("lo")) {
+		try{
+		    record.longitude = Float.parseFloat(value);
+		} catch(NumberFormatException e) {
+		    record.latitude = 0;
+		}
+	    }
+	    if (key.equals("dm")) {
+		try{
+		    record.dma_code = Integer.parseInt(value);
+		} catch(NumberFormatException e) {
+		    record.dma_code = 0;
+		}
+	    }
+	    if (key.equals("ac")) {
+		try{
+		    record.area_code = Integer.parseInt(value);
+		} catch(NumberFormatException e) {
+		    record.area_code = 0;
+		}
+	    }
+	}
         return record;
     }
 
     public synchronized Region getRegion(String str) {
-        InetAddress addr;
-        try {
-            addr = InetAddress.getByName(str);
-        } catch (UnknownHostException e) {
-            return null;
-        }
+	InetAddress addr;
+	try {
+	    addr = InetAddress.getByName(str);
+	}
+	catch (UnknownHostException e) {
+	    return null;
+	}
 
-        return getRegion(bytesToLong(addr.getAddress()));
+	return getRegion(bytesToLong(addr.getAddress()));
     }
 
     public synchronized Region getRegion(long ipnum) {
@@ -587,45 +655,40 @@ public class LookupService {
             if (seek_region >= 1000) {
                 record.countryCode = "US";
                 record.countryName = "United States";
-                ch[0] = (char) (((seek_region - 1000) / 26) + 65);
-                ch[1] = (char) (((seek_region - 1000) % 26) + 65);
-                record.region = new String(ch);
-            }
-            else {
+                ch[0] = (char)(((seek_region - 1000)/26) + 65);
+                ch[1] = (char)(((seek_region - 1000)%26) + 65);
+	        record.region = new String(ch);
+            } else {
                 record.countryCode = countryCode[seek_region];
                 record.countryName = countryName[seek_region];
                 record.region = "";
             }
-        }
-        else if (databaseType == DatabaseInfo.REGION_EDITION_REV1) {
+        } else if (databaseType == DatabaseInfo.REGION_EDITION_REV1) {
             seek_region = seekCountry(ipnum) - STATE_BEGIN_REV1;
             char ch[] = new char[2];
             if (seek_region < US_OFFSET) {
                 record.countryCode = "";
                 record.countryName = "";
-                record.region = "";
-            }
-            else if (seek_region < CANADA_OFFSET) {
+	        record.region = "";
+            } else if (seek_region < CANADA_OFFSET) {
                 record.countryCode = "US";
                 record.countryName = "United States";
-                ch[0] = (char) (((seek_region - US_OFFSET) / 26) + 65);
-                ch[1] = (char) (((seek_region - US_OFFSET) % 26) + 65);
-                record.region = new String(ch);
-            }
-            else if (seek_region < WORLD_OFFSET) {
+                ch[0] = (char)(((seek_region - US_OFFSET)/26) + 65);
+                ch[1] = (char)(((seek_region - US_OFFSET)%26) + 65);
+	        record.region = new String(ch);
+            } else if (seek_region < WORLD_OFFSET) {
                 record.countryCode = "CA";
                 record.countryName = "Canada";
-                ch[0] = (char) (((seek_region - CANADA_OFFSET) / 26) + 65);
-                ch[1] = (char) (((seek_region - CANADA_OFFSET) % 26) + 65);
-                record.region = new String(ch);
-            }
-            else {
+                ch[0] = (char)(((seek_region - CANADA_OFFSET)/26) + 65);
+                ch[1] = (char)(((seek_region - CANADA_OFFSET)%26) + 65);
+	        record.region = new String(ch);
+            } else {
                 record.countryCode = countryCode[(seek_region - WORLD_OFFSET) / FIPS_RANGE];
                 record.countryName = countryName[(seek_region - WORLD_OFFSET) / FIPS_RANGE];
                 record.region = "";
             }
-        }
-        return record;
+	}
+	return record;
     }
 
     public synchronized Location getLocation(long ipnum) {
@@ -645,13 +708,12 @@ public class LookupService {
             record_pointer = seek_country + (2 * recordLength - 1) * databaseSegments[0];
 
             if ((dboptions & GEOIP_MEMORY_CACHE) == 1) {
-                // read from memory
+                //read from memory
                 for (int i = 0; i < FULL_RECORD_LENGTH; i++) {
-                    record_buf[i] = dbbuffer[i + record_pointer];
-                }
-            }
-            else {
-                // read from disk
+                    record_buf[i] = dbbuffer[i+record_pointer];
+	        }
+            } else {
+                //read from disk
                 file.seek(record_pointer);
                 file.read(record_buf);
             }
@@ -690,29 +752,30 @@ public class LookupService {
             // get latitude
             for (j = 0; j < 3; j++)
                 latitude += (unsignedByteToInt(record_buf[record_buf_offset + j]) << (j * 8));
-            record.latitude = (float) latitude / 10000 - 180;
+            record.latitude = (float) latitude/10000 - 180;
             record_buf_offset += 3;
 
             // get longitude
             for (j = 0; j < 3; j++)
                 longitude += (unsignedByteToInt(record_buf[record_buf_offset + j]) << (j * 8));
-            record.longitude = (float) longitude / 10000 - 180;
+	    record.longitude = (float) longitude/10000 - 180;
 
-            record.dma_code = 0;
-            record.area_code = 0;
-            if (databaseType == DatabaseInfo.CITY_EDITION_REV1) {
-                // get DMA code
-                int dmaarea_combo = 0;
-                if (record.countryCode == "US") {
-                    record_buf_offset += 3;
-                    for (j = 0; j < 3; j++)
-                        dmaarea_combo += (unsignedByteToInt(record_buf[record_buf_offset + j]) << (j * 8));
-                    record.dma_code = dmaarea_combo / 1000;
-                    record.area_code = dmaarea_combo % 1000;
-                }
+	    record.dma_code = 0;
+	    record.area_code = 0;
+	    if (databaseType == DatabaseInfo.CITY_EDITION_REV1) {
+		// get DMA code
+		int dmaarea_combo = 0;
+		if (record.countryCode == "US") {
+		    record_buf_offset += 3;
+		    for (j = 0; j < 3; j++)
+			dmaarea_combo += (unsignedByteToInt(record_buf[record_buf_offset + j]) << (j * 8));
+		    record.dma_code = dmaarea_combo/1000;
+		    record.area_code = dmaarea_combo % 1000;
+		}
             }
-        } catch (IOException e) {
-            System.err.println("[" + new java.util.Date() + "] IO Exception while seting up segments");
+	}
+	catch (IOException e) {
+            System.err.println("IO Exception while seting up segments");
         }
         return record;
     }
@@ -723,12 +786,13 @@ public class LookupService {
 
     public String getOrg(String str) {
         InetAddress addr;
-        try {
-            addr = InetAddress.getByName(str);
-        } catch (UnknownHostException e) {
+	try {
+	    addr = InetAddress.getByName(str);
+	}
+	catch (UnknownHostException e) {
             return null;
-        }
-        return getOrg(addr);
+	}
+	return getOrg(addr);
     }
 
     // GeoIP Organization and ISP Edition methods
@@ -736,33 +800,33 @@ public class LookupService {
         int seek_org;
         int record_pointer;
         int str_length = 0;
-        byte[] buf = new byte[MAX_ORG_RECORD_LENGTH];
+        byte [] buf = new byte[MAX_ORG_RECORD_LENGTH];
         String org_buf;
 
         try {
             seek_org = seekCountry(ipnum);
             if (seek_org == databaseSegments[0]) {
-                return null;
+		return null;
             }
 
             record_pointer = seek_org + (2 * recordLength - 1) * databaseSegments[0];
             if ((dboptions & GEOIP_MEMORY_CACHE) == 1) {
-                // read from memory
-                for (int i = 0; i < FULL_RECORD_LENGTH; i++) {
-                    buf[i] = dbbuffer[i + record_pointer];
-                }
-            }
-            else {
-                // read from disk
+                //read from memory
+                for (int i = 0;i < FULL_RECORD_LENGTH;i++) {
+                    buf[i] = dbbuffer[i+record_pointer];
+	        }
+            } else {
+		//read from disk
                 file.seek(record_pointer);
                 file.read(buf);
             }
             while (buf[str_length] != '\0') {
-                str_length++;
+		str_length++;
             }
             org_buf = new String(buf, 0, str_length, "ISO-8859-1");
             return org_buf;
-        } catch (IOException e) {
+        }
+        catch (IOException e) {
             System.out.println("IO Exception");
             return null;
         }
@@ -770,36 +834,42 @@ public class LookupService {
 
     /**
      * Finds the country index value given an IP address.
-     * 
+     *
      * @param ipAddress the ip address to find in long format.
      * @return the country index.
      */
     private synchronized int seekCountry(long ipAddress) {
-        byte[] buf = new byte[2 * MAX_RECORD_LENGTH];
-        int[] x = new int[2];
+	byte [] buf = new byte[2 * MAX_RECORD_LENGTH];
+	int [] x = new int[2];
         int offset = 0;
+        _check_mtime();
         for (int depth = 31; depth >= 0; depth--) {
             if ((dboptions & GEOIP_MEMORY_CACHE) == 1) {
-                // read from memory
-                for (int i = 0; i < 2 * MAX_RECORD_LENGTH; i++) {
-                    buf[i] = dbbuffer[(2 * recordLength * offset) + i];
-                }
-            }
-            else {
-                // read from disk
-                try {
+		//read from memory
+                for (int i = 0;i < 2 * MAX_RECORD_LENGTH;i++) {
+		    buf[i] = dbbuffer[(2 * recordLength * offset)+i];
+		}
+            } else if ((dboptions & GEOIP_INDEX_CACHE) != 0) {
+                //read from index cache
+                for (int i = 0;i < 2 * MAX_RECORD_LENGTH;i++) {
+		    buf[i] = index_cache[(2 * recordLength * offset)+i];
+		}            
+            } else {
+		//read from disk 
+		try {
                     file.seek(2 * recordLength * offset);
                     file.read(buf);
-                } catch (IOException e) {
+                }
+                catch (IOException e) {
                     System.out.println("IO Exception");
                 }
             }
-            for (int i = 0; i < 2; i++) {
+            for (int i = 0; i<2; i++) {
                 x[i] = 0;
-                for (int j = 0; j < recordLength; j++) {
-                    int y = buf[i * recordLength + j];
+                for (int j = 0; j<recordLength; j++) {
+                    int y = buf[i*recordLength+j];
                     if (y < 0) {
-                        y += 256;
+                        y+= 256;
                     }
                     x[i] += (y << (j * 8));
                 }
@@ -816,28 +886,28 @@ public class LookupService {
                     return x[0];
                 }
                 offset = x[0];
-            }
-        }
+	    }
+	}
 
         // shouldn't reach here
-        System.err.println("[" + new java.util.Date() + "] Error seeking country while seeking " + ipAddress);
+        System.err.println("Error seeking country while seeking " + ipAddress);
         return 0;
     }
 
     /**
      * Returns the long version of an IP address given an InetAddress object.
-     * 
+     *
      * @param address the InetAddress.
      * @return the long form of the IP address.
      */
-    private static long bytesToLong(byte[] address) {
+    private static long bytesToLong(byte [] address) {
         long ipnum = 0;
         for (int i = 0; i < 4; ++i) {
             long y = address[i];
             if (y < 0) {
-                y += 256;
+                y+= 256;
             }
-            ipnum += y << ((3 - i) * 8);
+            ipnum += y << ((3-i)*8);
         }
         return ipnum;
     }
