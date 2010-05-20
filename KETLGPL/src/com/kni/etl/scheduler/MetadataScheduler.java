@@ -571,7 +571,7 @@ public class MetadataScheduler extends Metadata {
 								+ tablePrefix
 								+ "JOB_LOG A,  "+ tablePrefix+ "JOB B, " + tablePrefix + "JOB_TYPE C " +
 								"  WHERE A.JOB_ID = B.JOB_ID AND B.JOB_TYPE_ID = C.JOB_TYPE_ID AND A.STATUS_ID IN (?) " + 
-								"  AND ("+ jobTypesSQL + " B.JOB_TYPE_ID = 0) ORDER BY START_DATE,A.LAST_UPDATE_DATE FOR UPDATE");
+								"  AND ("+ jobTypesSQL + " B.JOB_TYPE_ID = 0) ORDER BY coalesce(B.PRIORITY,99999),START_DATE,A.LAST_UPDATE_DATE FOR UPDATE");
 
 				getNextJob.setInt(1, ETLJobStatus.READY_TO_RUN);
 
