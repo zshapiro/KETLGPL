@@ -4,7 +4,7 @@
  * Copyright (C) 2004 MaxMind LLC.  All Rights Reserved.
  *
  * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public
+ * modify it under the terms of the GNU General Lesser Public
  * License as published by the Free Software Foundation; either
  * version 2 of the License, or (at your option) any later version.
  *
@@ -13,7 +13,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public
+ * You should have received a copy of the GNU Lesser General Public
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
@@ -30,6 +30,7 @@ public class Location {
     public float longitude;
     public int dma_code;
     public int area_code;
+    public int metro_code;
 
     private final static double EARTH_DIAMETER = 2 * 6378.2;
     private final static double PI = 3.14159265;
