@@ -4,7 +4,7 @@
  * Copyright (C) 2003 MaxMind LLC.  All Rights Reserved.
  *
  * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public
+ * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
  * version 2 of the License, or (at your option) any later version.
  *
@@ -13,7 +13,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public
+ * You should have received a copy of the GNU Lesser General Public
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
@@ -141,7 +141,8 @@ public class LookupService {
 	"SK","SL","SM","SN","SO","SR","ST","SV","SY","SZ","TC","TD","TF","TG",
 	"TH","TJ","TK","TM","TN","TO","TL","TR","TT","TV","TW","TZ","UA","UG",
 	"UM","US","UY","UZ","VA","VC","VE","VG","VI","VN","VU","WF","WS","YE",
-	"YT","RS","ZA","ZM","ME","ZW","A1","A2","O1","AX","GG","IM","JE"};
+	"YT","RS","ZA","ZM","ME","ZW","A1","A2","O1","AX","GG","IM","JE","BL",
+	"MF"};
 
     private final static String[] countryName = {
 	"N/A","Asia/Pacific Region","Europe","Andorra","United Arab Emirates",
@@ -168,7 +169,7 @@ public class LookupService {
 	"Iceland","Italy","Jamaica","Jordan","Japan","Kenya","Kyrgyzstan","Cambodia",
 	"Kiribati","Comoros","Saint Kitts and Nevis",
 	"Korea, Democratic People's Republic of","Korea, Republic of","Kuwait",
-	"Cayman Islands","Kazakstan","Lao People's Democratic Republic","Lebanon",
+	"Cayman Islands","Kazakhstan","Lao People's Democratic Republic","Lebanon",
 	"Saint Lucia","Liechtenstein","Sri Lanka","Liberia","Lesotho","Lithuania",
 	"Luxembourg","Latvia","Libyan Arab Jamahiriya","Morocco","Monaco",
 	"Moldova, Republic of","Madagascar","Marshall Islands",
@@ -193,7 +194,8 @@ public class LookupService {
 	"Venezuela","Virgin Islands, British","Virgin Islands, U.S.","Vietnam",
 	"Vanuatu","Wallis and Futuna","Samoa","Yemen","Mayotte","Serbia",
 	"South Africa","Zambia","Montenegro","Zimbabwe","Anonymous Proxy",
-	"Satellite Provider","Other","Aland Islands","Guernsey","Isle of Man","Jersey"};
+	"Satellite Provider","Other","Aland Islands","Guernsey","Isle of Man","Jersey",
+	"Saint Barthelemy","Saint Martin"};
 
 
     /**
@@ -331,7 +333,8 @@ public class LookupService {
 			databaseSegments = new int[1];
 			databaseSegments[0] = 0;
 			if (databaseType == DatabaseInfo.CITY_EDITION_REV0 ||
-			    databaseType == DatabaseInfo.CITY_EDITION_REV1) {
+			    databaseType == DatabaseInfo.CITY_EDITION_REV1 ||
+			    databaseType == DatabaseInfo.ASNUM_EDITION) {
 			    recordLength = STANDARD_RECORD_LENGTH;
 			}
 			else {
@@ -517,6 +520,7 @@ public class LookupService {
             /* refresh filehandle */
             file.close();
             file = new RandomAccessFile(databaseFile,"r");
+	    databaseInfo = null;
 	    init();
           }
         }
@@ -616,11 +620,12 @@ public class LookupService {
 		    record.latitude = 0;
 		}
 	    }
-	    if (key.equals("dm")) {
+	    // dm depreciated use me ( metro_code ) instead
+	    if (key.equals("dm") || key.equals("me")) {
 		try{
-		    record.dma_code = Integer.parseInt(value);
+		    record.metro_code = record.dma_code = Integer.parseInt(value);
 		} catch(NumberFormatException e) {
-		    record.dma_code = 0;
+		    record.metro_code = record.dma_code = 0;
 		}
 	    }
 	    if (key.equals("ac")) {
@@ -709,10 +714,8 @@ public class LookupService {
 
             if ((dboptions & GEOIP_MEMORY_CACHE) == 1) {
                 //read from memory
-                for (int i = 0; i < FULL_RECORD_LENGTH; i++) {
-                    record_buf[i] = dbbuffer[i+record_pointer];
-	        }
-            } else {
+		System.arraycopy(dbbuffer, record_pointer, record_buf, 0, Math.min(dbbuffer.length - record_pointer, FULL_RECORD_LENGTH));
+} else {
                 //read from disk
                 file.seek(record_pointer);
                 file.read(record_buf);
@@ -760,17 +763,17 @@ public class LookupService {
                 longitude += (unsignedByteToInt(record_buf[record_buf_offset + j]) << (j * 8));
 	    record.longitude = (float) longitude/10000 - 180;
 
-	    record.dma_code = 0;
+	    record.dma_code = record.metro_code = 0;
 	    record.area_code = 0;
 	    if (databaseType == DatabaseInfo.CITY_EDITION_REV1) {
 		// get DMA code
-		int dmaarea_combo = 0;
+		int metroarea_combo = 0;
 		if (record.countryCode == "US") {
 		    record_buf_offset += 3;
 		    for (j = 0; j < 3; j++)
-			dmaarea_combo += (unsignedByteToInt(record_buf[record_buf_offset + j]) << (j * 8));
-		    record.dma_code = dmaarea_combo/1000;
-		    record.area_code = dmaarea_combo % 1000;
+			metroarea_combo += (unsignedByteToInt(record_buf[record_buf_offset + j]) << (j * 8));
+		    record.metro_code = record.dma_code = metroarea_combo/1000;
+		    record.area_code = metroarea_combo % 1000;
 		}
             }
 	}
@@ -812,9 +815,7 @@ public class LookupService {
             record_pointer = seek_org + (2 * recordLength - 1) * databaseSegments[0];
             if ((dboptions & GEOIP_MEMORY_CACHE) == 1) {
                 //read from memory
-                for (int i = 0;i < FULL_RECORD_LENGTH;i++) {
-                    buf[i] = dbbuffer[i+record_pointer];
-	        }
+		System.arraycopy(dbbuffer, record_pointer, buf, 0, Math.min(dbbuffer.length - record_pointer, MAX_ORG_RECORD_LENGTH));
             } else {
 		//read from disk
                 file.seek(record_pointer);
