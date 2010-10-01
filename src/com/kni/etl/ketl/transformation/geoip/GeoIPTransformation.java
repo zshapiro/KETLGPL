@@ -198,7 +198,7 @@ public class GeoIPTransformation extends ETLTransformation {
     private static final int COUNTRYNAME_ID = 1;
     private static final String FIELD_ATTRIB = "FIELD";
     private static final String[] FIELDS = { "COUNTRYCODE", "COUNTRYNAME", "REGION", "CITY", "POSTALCODE", "LATITUDE",
-            "LONGITUDE" ,"AREACODE","DMA"};
+            "LONGITUDE" ,"AREACODE","DMA","ISP","ORG"};
     public static String FORMAT_STRING = "FORMATSTRING";
     private static final String ISP = "ISP";
     private static final String ISP_DB_PATH = "ISPDBPATH";
@@ -252,7 +252,8 @@ public class GeoIPTransformation extends ETLTransformation {
         Object o = null;
         switch (type) {
         case ORG_ID:
-            break;
+        	 o = mOrgDBPath.getOrg(ip);
+             break;
         case CITY_ID:
             o = mCityDBPath.getLocation(ip);
             if (o == null)
@@ -265,7 +266,8 @@ public class GeoIPTransformation extends ETLTransformation {
 
             break;
         case ISP_ID:
-            break;
+        	 o = mISPDBPath.getOrg(ip);
+             break;
         }
         if (o != null && ip != null) {
             mCache[type][0] = ip;
@@ -317,7 +319,8 @@ public class GeoIPTransformation extends ETLTransformation {
 
         switch (port.lookUpRef) {
         case ORG_ID:
-            break;
+        	String org = (String) checkCacheFirst(ORG_ID, this.mCurrentIP);
+        	return org;
         case CITY_ID:
             Location loc = (Location) checkCacheFirst(CITY_ID, mCurrentIP);
             if (loc == null)
@@ -365,7 +368,8 @@ public class GeoIPTransformation extends ETLTransformation {
             }
             break;
         case ISP_ID:
-            break;
+        	String isp = (String) checkCacheFirst(ISP_ID, this.mCurrentIP);
+        	return isp;
         }
 
         throw new KETLTransformException("unexpected field type " + port.mstrName);
