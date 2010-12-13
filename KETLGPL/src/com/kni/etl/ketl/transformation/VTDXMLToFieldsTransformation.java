@@ -22,36 +22,17 @@
  */
 package com.kni.etl.ketl.transformation;
 
-import java.io.StringReader;
-import java.io.StringWriter;
+import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Constructor;
 import java.text.Format;
 import java.text.ParsePosition;
-import java.util.ArrayList;
 import java.util.List;
 
-import com.ximpleware.*;
-import com.ximpleware.xpath.*;
-import java.io.*;
-
 import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.transform.Source;
-import javax.xml.transform.Transformer;
-import javax.xml.transform.TransformerFactory;
-import javax.xml.transform.stream.StreamResult;
-import javax.xml.xpath.XPath;
-import javax.xml.xpath.XPathConstants;
-import javax.xml.xpath.XPathExpression;
-import javax.xml.xpath.XPathExpressionException;
-import javax.xml.xpath.XPathFactory;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Node;
-import org.w3c.dom.NodeList;
-import org.xml.sax.InputSource;
 
-import com.kni.etl.dbutils.ResourcePool;
 import com.kni.etl.ketl.ETLInPort;
 import com.kni.etl.ketl.ETLOutPort;
 import com.kni.etl.ketl.ETLPort;
@@ -59,10 +40,15 @@ import com.kni.etl.ketl.ETLStep;
 import com.kni.etl.ketl.exceptions.KETLThreadException;
 import com.kni.etl.ketl.exceptions.KETLTransformException;
 import com.kni.etl.ketl.smp.ETLThreadManager;
-import com.kni.etl.ketl.transformation.ETLTransformation;
 import com.kni.etl.stringtools.FastSimpleDateFormat;
 import com.kni.etl.util.XMLHandler;
 import com.kni.etl.util.XMLHelper;
+import com.ximpleware.AutoPilot;
+import com.ximpleware.BookMark;
+import com.ximpleware.NavException;
+import com.ximpleware.VTDGen;
+import com.ximpleware.VTDNav;
+import com.ximpleware.XPathEvalException;
 
 // TODO: Auto-generated Javadoc
 // Create a parallel transformation. All thread management is done for you
@@ -72,6 +58,11 @@ import com.kni.etl.util.XMLHelper;
  * The Class XMLToFieldsTransformation.
  */
 public class VTDXMLToFieldsTransformation extends ETLTransformation {
+
+	@Override
+	protected String getVersion() {
+		return "$LastChangedRevision$";
+	}
 
 	public interface XMLNodeListCreator {
 
@@ -99,15 +90,12 @@ public class VTDXMLToFieldsTransformation extends ETLTransformation {
 		if (res != 0)
 			return res;
 
-		if ((this.mRootXPath = XMLHelper.getAttributeAsString(xmlConfig.getAttributes(),
-				VTDXMLToFieldsTransformation.XPATH_ATTRIB, null)) == null) {
+		if ((this.mRootXPath = XMLHelper.getAttributeAsString(xmlConfig.getAttributes(), VTDXMLToFieldsTransformation.XPATH_ATTRIB, null)) == null) {
 			// No TABLE attribute listed...
-			throw new KETLThreadException("ERROR: No root XPATH attribute specified in step '" + this.getName() + "'.",
-					this);
+			throw new KETLThreadException("ERROR: No root XPATH attribute specified in step '" + this.getName() + "'.", this);
 		}
 
-		boolean mbXPathEvaluateNodes = XMLHelper.getAttributeAsBoolean(xmlConfig.getAttributes(),
-				VTDXMLToFieldsTransformation.XPATH_EVALUATE_ATTRIB, true);
+		boolean mbXPathEvaluateNodes = XMLHelper.getAttributeAsBoolean(xmlConfig.getAttributes(), VTDXMLToFieldsTransformation.XPATH_EVALUATE_ATTRIB, true);
 
 		try {
 			this.mXPath = new AutoPilot();
@@ -126,7 +114,7 @@ public class VTDXMLToFieldsTransformation extends ETLTransformation {
 	private DocumentBuilder mBuilder;
 
 	/** The xml handler. */
-	private XMLHandler xmlHandler = null;
+	private final XMLHandler xmlHandler = null;
 
 	/** The namespace aware. */
 	private boolean namespaceAware;
@@ -146,8 +134,7 @@ public class VTDXMLToFieldsTransformation extends ETLTransformation {
 	 * @throws KETLThreadException
 	 *             the KETL thread exception
 	 */
-	public VTDXMLToFieldsTransformation(Node pXMLConfig, int pPartitionID, int pPartition,
-			ETLThreadManager pThreadManager) throws KETLThreadException {
+	public VTDXMLToFieldsTransformation(Node pXMLConfig, int pPartitionID, int pPartition, ETLThreadManager pThreadManager) throws KETLThreadException {
 		super(pXMLConfig, pPartitionID, pPartition, pThreadManager);
 
 		try {
@@ -211,7 +198,8 @@ public class VTDXMLToFieldsTransformation extends ETLTransformation {
 	/*
 	 * (non-Javadoc)
 	 * 
-	 * @see com.kni.etl.ketl.smp.ETLWorker#getNewOutPort(com.kni.etl.ketl.ETLStep)
+	 * @see
+	 * com.kni.etl.ketl.smp.ETLWorker#getNewOutPort(com.kni.etl.ketl.ETLStep)
 	 */
 	@Override
 	protected ETLOutPort getNewOutPort(ETLStep srcStep) {
@@ -221,7 +209,8 @@ public class VTDXMLToFieldsTransformation extends ETLTransformation {
 	/*
 	 * (non-Javadoc)
 	 * 
-	 * @see com.kni.etl.ketl.smp.ETLWorker#getNewInPort(com.kni.etl.ketl.ETLStep)
+	 * @see
+	 * com.kni.etl.ketl.smp.ETLWorker#getNewInPort(com.kni.etl.ketl.ETLStep)
 	 */
 	@Override
 	protected ETLInPort getNewInPort(ETLStep srcStep) {
@@ -239,7 +228,9 @@ public class VTDXMLToFieldsTransformation extends ETLTransformation {
 		/*
 		 * (non-Javadoc)
 		 * 
-		 * @see com.kni.etl.ketl.ETLPort#setDataTypeFromPort(com.kni.etl.ketl.ETLPort)
+		 * @see
+		 * com.kni.etl.ketl.ETLPort#setDataTypeFromPort(com.kni.etl.ketl.ETLPort
+		 * )
 		 */
 		@Override
 		final public void setDataTypeFromPort(ETLPort in) throws KETLThreadException, ClassNotFoundException {
@@ -276,7 +267,6 @@ public class VTDXMLToFieldsTransformation extends ETLTransformation {
 		/** The attribute. */
 		String attribute = null;
 
-		
 		/** The position. */
 		ParsePosition position;
 
@@ -293,15 +283,12 @@ public class VTDXMLToFieldsTransformation extends ETLTransformation {
 		 */
 		@Override
 		public int initialize(Node xmlConfig) throws ClassNotFoundException, KETLThreadException {
-			this.xpath = XMLHelper.getAttributeAsString(xmlConfig.getAttributes(),
-					VTDXMLToFieldsTransformation.XPATH_ATTRIB, null);
+			this.xpath = XMLHelper.getAttributeAsString(xmlConfig.getAttributes(), VTDXMLToFieldsTransformation.XPATH_ATTRIB, null);
 
 			if (this.xpath == null)
-				this.xpath = XMLHelper.getAttributeAsString(xmlConfig.getParentNode().getAttributes(),
-						VTDXMLToFieldsTransformation.XPATH_ATTRIB, null);
+				this.xpath = XMLHelper.getAttributeAsString(xmlConfig.getParentNode().getAttributes(), VTDXMLToFieldsTransformation.XPATH_ATTRIB, null);
 
-			this.mDumpXML = XMLHelper.getAttributeAsBoolean(xmlConfig.getAttributes(),
-					VTDXMLToFieldsTransformation.DUMPXML_ATTRIB, false);
+			this.mDumpXML = XMLHelper.getAttributeAsBoolean(xmlConfig.getAttributes(), VTDXMLToFieldsTransformation.DUMPXML_ATTRIB, false);
 
 			this.nullIF = XMLHelper.getAttributeAsString(xmlConfig.getAttributes(), "NULLIF", null);
 			int res = super.initialize(xmlConfig);
@@ -314,8 +301,7 @@ public class VTDXMLToFieldsTransformation extends ETLTransformation {
 				this.xpath = null;
 			}
 
-			this.fmt = XMLHelper.getAttributeAsString(this.getXMLConfig().getAttributes(),
-					VTDXMLToFieldsTransformation.FORMAT_STRING, null);
+			this.fmt = XMLHelper.getAttributeAsString(this.getXMLConfig().getAttributes(), VTDXMLToFieldsTransformation.FORMAT_STRING, null);
 
 			if (this.xpath != null) {
 				try {
@@ -343,9 +329,8 @@ public class VTDXMLToFieldsTransformation extends ETLTransformation {
 
 			// must be pure code then do some replacing
 
-			return this.getCodeGenerationReferenceObject() + "[" + this.mesStep.getUsedPortIndex(this) + "] = (("
-					+ this.mesStep.getClass().getCanonicalName() + ")this.getOwner()).getXMLValue("
-					+ portReferenceIndex + ")";
+			return this.getCodeGenerationReferenceObject() + "[" + this.mesStep.getUsedPortIndex(this) + "] = ((" + this.mesStep.getClass().getCanonicalName()
+					+ ")this.getOwner()).getXMLValue(" + portReferenceIndex + ")";
 
 		}
 
@@ -373,8 +358,7 @@ public class VTDXMLToFieldsTransformation extends ETLTransformation {
 		if (this.xmlSrcPort == null)
 			return super.getRecordExecuteMethodFooter();
 
-		return " return ((" + this.getClass().getCanonicalName()
-				+ ")this.getOwner()).noMoreNodes()?SUCCESS:REPEAT_RECORD;}";
+		return " return ((" + this.getClass().getCanonicalName() + ")this.getOwner()).noMoreNodes()?SUCCESS:REPEAT_RECORD;}";
 	}
 
 	/*
@@ -387,8 +371,7 @@ public class VTDXMLToFieldsTransformation extends ETLTransformation {
 		if (this.xmlSrcPort == null)
 			return super.getRecordExecuteMethodHeader();
 
-		return super.getRecordExecuteMethodHeader() + " if(((" + this.getClass().getCanonicalName()
-				+ ")this.getOwner()).loadNodeList(" + this.xmlSrcPort.generateReference()
+		return super.getRecordExecuteMethodHeader() + " if(((" + this.getClass().getCanonicalName() + ")this.getOwner()).loadNodeList(" + this.xmlSrcPort.generateReference()
 				+ ") == false) return SKIP_RECORD;";
 	}
 
@@ -419,22 +402,19 @@ public class VTDXMLToFieldsTransformation extends ETLTransformation {
 	 * @throws Exception
 	 *             the exception
 	 */
-	/*private String getXMLDump(Object o) throws Exception {
-
-		if (o == null)
-			return null;
-		if (o instanceof Node)
-			return XMLHelper.outputXML((Node) o);
-
-		if (o instanceof Source) {
-			StringWriter ws = new StringWriter();
-			this.xmlTransformer.transform((Source) o, new StreamResult(ws));
-			return ws.toString();
-		}
-
-		throw new Exception("Object could not be converted to xml " + o.getClass().getCanonicalName());
-	}
-*/
+	/*
+	 * private String getXMLDump(Object o) throws Exception {
+	 * 
+	 * if (o == null) return null; if (o instanceof Node) return
+	 * XMLHelper.outputXML((Node) o);
+	 * 
+	 * if (o instanceof Source) { StringWriter ws = new StringWriter();
+	 * this.xmlTransformer.transform((Source) o, new StreamResult(ws)); return
+	 * ws.toString(); }
+	 * 
+	 * throw new Exception("Object could not be converted to xml " +
+	 * o.getClass().getCanonicalName()); }
+	 */
 	/**
 	 * Gets the XML value.
 	 * 
@@ -455,7 +435,7 @@ public class VTDXMLToFieldsTransformation extends ETLTransformation {
 			this.bookMark.setCursorPosition();
 			VTDNav vn = this.bookMark.getNav();
 
-			if(this.mXPath ==null){
+			if (this.mXPath == null) {
 				if (vn.getText() != -1)
 					System.out.println(vn.toNormalizedString(vn.getText()));
 			} else {
@@ -513,8 +493,7 @@ public class VTDXMLToFieldsTransformation extends ETLTransformation {
 			try {
 				con = cl.getConstructor(new Class[] { String.class });
 			} catch (Exception e) {
-				throw new KETLTransformException("No constructor found for class " + cl.getCanonicalName()
-						+ " that accepts a single string");
+				throw new KETLTransformException("No constructor found for class " + cl.getCanonicalName() + " that accepts a single string");
 			}
 			return con.newInstance(new Object[] { result });
 
@@ -540,7 +519,9 @@ public class VTDXMLToFieldsTransformation extends ETLTransformation {
 	private AutoPilot mXPath;
 
 	/** The length. */
-	private int pos = 0, length;
+	private final int pos = 0;
+
+	private int length;
 
 	private XMLNodeListCreator customHandler;
 
