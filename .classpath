@@ -2,7 +2,8 @@
 <classpath>
 	<classpathentry kind="src" path="src"/>
 	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
-	<classpathentry combineaccessrules="false" kind="src" path="/KETL"/>
 	<classpathentry kind="con" path="org.eclipse.jdt.junit.JUNIT_CONTAINER/3.8.1"/>
+	<classpathentry kind="lib" path="lib/vtd-xml.jar"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/KETL"/>
 	<classpathentry kind="output" path="build"/>
 </classpath>
