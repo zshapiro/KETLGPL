@@ -132,10 +132,10 @@ public class MetadataScheduler extends Metadata {
               this.metadataConnection
                   .prepareStatement("insert into  "
                       + tablePrefix
-                      + "job_log_hist(job_id,load_id,start_date,status_id,end_date,message,dm_load_id,retry_attempts,execution_date,stats,server_id"
+                      + "job_log_hist(job_id,load_id,start_date,status_id,end_date,message,dm_load_id,retry_attempts,execution_date,stats,server_id,priority"
                       + JOB_LOG_LAST_UPDATE_COL
                       + ") "
-                      + "select job_id,load_id,start_date,status_id,end_date,message,dm_load_id,retry_attempts,execution_date,stats,server_id"
+                      + "select job_id,load_id,start_date,status_id,end_date,message,dm_load_id,retry_attempts,execution_date,stats,server_id,priority"
                       + JOB_LOG_HIST_LAST_UPDATE_COL + " from  " + tablePrefix
                       + "job_log where load_id = ?");
         }
@@ -594,7 +594,8 @@ public class MetadataScheduler extends Metadata {
                     + tablePrefix
                     + "JOB_TYPE C "
                     + "  WHERE A.JOB_ID = B.JOB_ID AND B.JOB_TYPE_ID = C.JOB_TYPE_ID AND A.STATUS_ID IN (?) "
-                    + "  AND (" + jobTypesSQL + " B.JOB_TYPE_ID = 0) ORDER BY coalesce(B.PRIORITY,"
+                    + "  AND (" + jobTypesSQL
+                    + " B.JOB_TYPE_ID = 0) ORDER BY coalesce(B.PRIORITY,A.PRIORITY,"
                     + EngineConstants.DEFAULT_PRIORITY
                     + "),START_DATE,A.LAST_UPDATE_DATE FOR UPDATE");
 
