@@ -215,7 +215,8 @@ public class MetadataScheduler extends Metadata {
       // SELECT FOR UPDATE AND HOLD EVERYTHING ELSE
       PreparedStatement dueJobs =
           this.metadataConnection
-              .prepareStatement("SELECT A.JOB_ID, MONTH, MONTH_OF_YEAR, DAY, DAY_OF_WEEK, DAY_OF_MONTH, HOUR_OF_DAY,HOUR, NEXT_RUN_DATE, SCHEDULE_ID, PROJECT_ID, MINUTE, MINUTE_OF_HOUR FROM  "
+              .prepareStatement("SELECT A.JOB_ID, MONTH, MONTH_OF_YEAR, DAY, DAY_OF_WEEK, DAY_OF_MONTH, HOUR_OF_DAY,HOUR,"
+                  + " NEXT_RUN_DATE, SCHEDULE_ID, PROJECT_ID, MINUTE, MINUTE_OF_HOUR, coalesce(SCHEDULE_SKIPS,0),coalesce(MAX_SKIPS,0) FROM  "
                   + tablePrefix
                   + "JOB_SCHEDULE A, "
                   + tablePrefix
@@ -233,13 +234,13 @@ public class MetadataScheduler extends Metadata {
       int day_of_month;
       int hour_of_day;
       int hour;
-      int scheduleID;
+      int scheduleID = -1;
       int projectID = -1;
       int minute;
       int minute_of_hour;
-
+      int skips = 0, max_skips = 0;
       java.util.Date nextRunDate;
-      java.util.Date lastRunDate;
+      java.util.Date lastRunDate = null;
 
       PreparedStatement updJobSched = null;
 
@@ -306,6 +307,10 @@ public class MetadataScheduler extends Metadata {
         // get as if timestamp so to not to loose time out of date
         lastRunDate = m_rs.getTimestamp(9);
 
+        // determine if alert should be sent
+        skips = m_rs.getInt(14);
+        max_skips = m_rs.getInt(15);
+
         // Calculate next run date
         nextRunDate =
             getNextDate(lastRunDate, month, month_of_year, day, day_of_week, day_of_month, hour,
@@ -349,9 +354,24 @@ public class MetadataScheduler extends Metadata {
         dueJobs.close();
       }
 
-      // execute scheduled job if found.
-      if (scheduledJob)
-        executeJob(projectID, jobID, false, false);
+      // execute scheduled job if found, depending on the result alert if job skipped
+      if (scheduledJob) {
+        int res = executeJob(projectID, jobID, false, false, skips >= max_skips);
+
+        if (res == -1 || skips > 0) {
+          PreparedStatement m_schedule_skips =
+              this.metadataConnection
+                  .prepareStatement(" UPDATE  "
+                      + tablePrefix
+                      + "JOB_SCHEDULE SET SCHEDULE_SKIPS = CASE WHEN ? = -1 then SCHEDULE_SKIPS+1 ELSE 0 END WHERE SCHEDULE_ID = ? AND JOB_ID = ?");
+          m_schedule_skips.setInt(1, res);
+          m_schedule_skips.setInt(2, scheduleID);
+          m_schedule_skips.setString(3, jobID);
+          m_schedule_skips.executeUpdate();
+          m_schedule_skips.close();
+        }
+
+      }
 
       // mark jobs that have finished with appropiate status
       // -- actually, this block is only getting the next jobs ready to run (process WAITING
