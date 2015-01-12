@@ -363,7 +363,7 @@ public class MetadataScheduler extends Metadata {
               this.metadataConnection
                   .prepareStatement(" UPDATE  "
                       + tablePrefix
-                      + "JOB_SCHEDULE SET SCHEDULE_SKIPS = CASE WHEN ? = -1 then SCHEDULE_SKIPS+1 ELSE 0 END WHERE SCHEDULE_ID = ? AND JOB_ID = ?");
+                      + "JOB_SCHEDULE SET SCHEDULE_SKIPS = CASE WHEN ? = -1 then coalesce(SCHEDULE_SKIPS,0)+1 ELSE 0 END WHERE SCHEDULE_ID = ? AND JOB_ID = ?");
           m_schedule_skips.setInt(1, res);
           m_schedule_skips.setInt(2, scheduleID);
           m_schedule_skips.setString(3, jobID);
